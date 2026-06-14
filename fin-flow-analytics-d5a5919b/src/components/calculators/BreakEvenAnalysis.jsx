@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from 'recharts';
+import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, ReferenceArea } from 'recharts';
 import { Target, DollarSign, Shield, AlertTriangle, RotateCcw, Copy } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -114,6 +114,7 @@ export default function BreakEvenAnalysis() {
     error,
     equilibriumPrice,
     equilibriumQuantity,
+    perfectCompetitionEquilibrium,
   } = useMemo(() => {
     const fixedCostsNumber = Number(fixedCosts);
     const variableCostNumber = Number(variableCostPerUnit);
@@ -242,6 +243,67 @@ export default function BreakEvenAnalysis() {
     const useRecs = useRecommendations;
     const P_used = useRecs && eqPrice !== null ? eqPrice : priceNumber;
     const Q_used = useRecs && eqQuantity !== null ? eqQuantity : expectedSalesNumber;
+
+    // Special-case: allow P* == MC (within tolerance) for Perfect Competition / homogeneous Bertrand
+    const tol = 0.01;
+    const isPerfectCompOrHomBertrand = (isPerfectCompetition) || (isBertrand && differentiated === 'no');
+    if (useRecs && eqPrice !== null && isPerfectCompOrHomBertrand && Math.abs(eqPrice - variableCostNumber) <= tol) {
+      // Contribution margin is zero; break-even is not achievable through pricing (infinite)
+      const contributionMargin = 0;
+      const breakEvenQuantity = Infinity;
+      const breakEvenRevenue = 0;
+      const expectedRevenue = (eqPrice || 0) * (eqQuantity || 0);
+      const expectedProfit = -fixedCostsNumber; // lose fixed costs
+      const interpretation = `Perfect Competition equilibrium: price equals marginal cost. Selling ${formatNumber(eqQuantity)} units at ${formatCurrency(eqPrice)} yields revenue ${formatCurrency(expectedRevenue)} and profit ${formatCurrency(expectedProfit)}.`;
+
+      const largestQuantity = Math.max(demandA / demandB, (eqQuantity || 0) * 2, 100);
+      const maxQuantity = largestQuantity * 1.4;
+      const chartData = [];
+      const steps = 50;
+      for (let step = 0; step <= steps; step++) {
+        const quantity = (maxQuantity / steps) * step;
+        const price = Math.max(0, demandA - demandB * quantity);
+        const totalRevenue = price * quantity;
+        const totalCost = fixedCostsNumber + variableCostNumber * quantity;
+        const mr = Math.max(0, demandA - 2 * demandB * quantity);
+        chartData.push({
+          quantity,
+          price,
+          totalRevenue,
+          totalCost,
+          marginalRevenue: mr,
+          marginalCost: variableCostNumber,
+        });
+      }
+
+      return {
+        contributionMargin,
+        breakEvenQuantity,
+        breakEvenRevenue,
+        marginOfSafetyUnits: null,
+        marginOfSafetyPercent: null,
+        isValid: true,
+        error: null,
+        chartData,
+        maxQuantity,
+        structure,
+        pricingLogic,
+        recommendedQuantity,
+        recommendedPrice,
+        expectedRevenue,
+        expectedProfit,
+        interpretation,
+        structureDescription: marketStructureDescription(structure),
+        chartLabels: {
+          demand: 'Demand Price (P)',
+          mr: 'Marginal Revenue',
+          mc: 'Marginal Cost',
+        },
+        equilibriumPrice: eqPrice,
+        equilibriumQuantity: eqQuantity,
+        perfectCompetitionEquilibrium: true,
+      };
+    }
 
     if (P_used <= variableCostNumber) {
       const errorMsg = P_used === variableCostNumber
@@ -407,7 +469,14 @@ export default function BreakEvenAnalysis() {
                       placeholder="e.g., 120"
                     />
                   </TooltipTrigger>
-                  <TooltipContent>The price you charge customers for one unit.</TooltipContent>
+                  <TooltipContent>
+                    <div>
+                      <p>The price you charge customers for one unit.</p>
+                      {useRecommendations && (
+                        <p className="mt-2 text-xs italic">When 'Use market structure recommendations' is enabled, this manual price is for reference only and is not used in calculations.</p>
+                      )}
+                    </div>
+                  </TooltipContent>
                 </UITooltip>
               </div>
 
@@ -556,11 +625,47 @@ export default function BreakEvenAnalysis() {
               ) : (
                 <>
                   <div className="grid gap-4">
-                    <Card className="p-4">
-                      <p className="text-sm text-gray-500">Suggested Market Structure</p>
-                      <p className="text-2xl font-bold">{structure}</p>
-                      <p className="text-sm text-gray-500 mt-2">{structureDescription}</p>
-                    </Card>
+                        <Card className="p-4">
+                          <p className="text-sm text-gray-500">Suggested Market Structure</p>
+                          <p className="text-2xl font-bold">{structure}</p>
+                          <p className="text-sm text-gray-500 mt-2">{structureDescription}</p>
+                        </Card>
+                        {/** Special panel for perfect-competition / P = MC equilibrium **/}
+                        {perfectCompetitionEquilibrium && (
+                          <Card className="p-4 bg-yellow-50 dark:bg-yellow-900">
+                            <p className="text-sm font-semibold">Perfect Competition Equilibrium</p>
+                            <p className="text-xs text-gray-600 mt-2">With many competitors and homogeneous products, price is driven to marginal cost. Firms earn zero economic profit in long-run equilibrium.</p>
+                            <div className="grid grid-cols-2 gap-4 mt-4">
+                              <div>
+                                <p className="text-sm text-gray-500">Recommended Price</p>
+                                <p className="text-2xl font-bold">{formatCurrency(equilibriumPrice)}</p>
+                              </div>
+                              <div>
+                                <p className="text-sm text-gray-500">Recommended Quantity</p>
+                                <p className="text-2xl font-bold">{formatNumber(equilibriumQuantity)} <span className="text-lg font-medium">units</span></p>
+                              </div>
+                            </div>
+                            <div className="mt-4">
+                              <p className="text-sm text-gray-500">Contribution Margin</p>
+                              <p className="text-base font-medium">$0</p>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-sm text-gray-500">Expected Revenue</p>
+                                <p className="text-base font-medium">{formatCurrency(expectedRevenue)}</p>
+                              </div>
+                              <div>
+                                <p className="text-sm text-gray-500">Expected Profit</p>
+                                <p className="text-base font-medium text-red-600">{formatCurrency(expectedProfit)}</p>
+                              </div>
+                            </div>
+                            <div className="mt-4 text-sm">
+                              <p className="font-semibold">Break-Even Analysis</p>
+                              <p className="text-xs text-gray-600">At P = MC, contribution margin is zero. You cannot recover fixed costs through operations. Break-even is impossible under pure price competition with homogeneous products.</p>
+                              <p className="mt-2 text-xs">To break even or earn profit, consider: 1) differentiating your product to charge P &gt; MC; 2) reducing fixed costs; 3) competing on quantity (Cournot) rather than price.</p>
+                            </div>
+                          </Card>
+                        )}
                     <Card className="p-4">
                       <p className="text-sm text-gray-500">Your Initial Estimates</p>
                       <p className="text-base text-gray-500 mt-2">Selling Price: {formatCurrency(pricePerUnit)} · Expected Sales: {formatNumber(expectedSales)} units</p>
@@ -642,12 +747,15 @@ export default function BreakEvenAnalysis() {
                             <Line type="monotone" dataKey="marginalRevenue" name={chartLabels.mr} stroke="#ea580c" strokeWidth={2} dot={false} />
                           )}
                           <Line type="monotone" dataKey="marginalCost" name={chartLabels.mc} stroke="#16a34a" strokeWidth={2} dot={false} />
-                          {equilibriumPrice !== null && (
+                            {equilibriumPrice !== null && (
                             <ReferenceLine y={equilibriumPrice} stroke="#c026d3" strokeDasharray="4 4" label={{ value: 'Market Price', position: 'insideTopLeft' }} />
                           )}
                           {equilibriumQuantity !== null && (
                             <ReferenceLine x={equilibriumQuantity} stroke="#000" strokeDasharray="4 4" label={{ value: 'Suggested Q', position: 'insideTopLeft' }} />
                           )}
+                            {perfectCompetitionEquilibrium && equilibriumQuantity > 0 && (
+                              <ReferenceArea x1={0} x2={equilibriumQuantity} y1={0} y2={fixedCosts / (equilibriumQuantity || 1)} fill="rgba(239,68,68,0.12)" />
+                            )}
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>

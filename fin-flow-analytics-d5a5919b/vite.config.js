@@ -6,7 +6,18 @@ import path from 'path'
 export default defineConfig({
   plugins: [react()],
   server: {
-    allowedHosts: true
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: false,
+    cors: true,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,HEAD,PUT,PATCH,POST,DELETE'
+    }
+    ,
+    // If running in a Codespace, set origin and HMR host to the public browse URL
+    origin: process.env.CODESPACE_NAME ? `https://${process.env.CODESPACE_NAME}-${process.env.PORT || 5173}.app.github.dev` : undefined,
+    hmr: process.env.CODESPACE_NAME ? { host: `${process.env.CODESPACE_NAME}-${process.env.PORT || 5173}.app.github.dev`, protocol: 'wss' } : undefined
   },
   resolve: {
     alias: {
@@ -21,4 +32,4 @@ export default defineConfig({
       },
     },
   },
-}) 
+})

@@ -104,10 +104,22 @@ export default function Dashboard() {
   }, []);
 
   const ActiveCalculator = activeCalculatorId ? calculatorComponents[activeCalculatorId]?.component : null;
+    const unknownCalculator = activeCalculatorId && !calculatorComponents[activeCalculatorId];
 
   return (
     <Layout>
-      {ActiveCalculator ? <ActiveCalculator /> : <WelcomeDashboard />}
+            {unknownCalculator ? (
+                <div className="p-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Unknown Calculator</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-sm text-gray-600">The requested calculator "{activeCalculatorId}" was not found. Please select a tool from the sidebar.</p>
+                        </CardContent>
+                    </Card>
+                </div>
+            ) : (ActiveCalculator ? <ActiveCalculator /> : <WelcomeDashboard />)}
     </Layout>
   );
 }
