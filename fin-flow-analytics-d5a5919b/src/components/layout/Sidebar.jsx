@@ -11,7 +11,7 @@ const calculatorCategories = [
     icon: TrendingUp,
     calculators: [
       { id: 'cashflow', name: 'Cashflow Forecaster', icon: TrendingUp, description: '12-month cash position projections' },
-      { id: 'breakeven', name: 'Break-Even Analysis', icon: Target, description: 'Find profitability threshold' },
+      { id: 'breakeven', name: 'Break-Even & Pricing Strategy', icon: Target, description: 'Break-even plus market pricing guidance' },
       { id: 'scenario', name: 'Scenario Tester', icon: FlaskConical, description: 'What-if analysis tool' },
     ]
   },

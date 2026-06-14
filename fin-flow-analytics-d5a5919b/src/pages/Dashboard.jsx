@@ -19,7 +19,7 @@ import PortfolioAnalysisToolkit from '../components/calculators/PortfolioAnalysi
 
 const calculatorComponents = {
   'cashflow': { component: CashflowForecaster, title: 'Cashflow Forecaster' },
-  'breakeven': { component: BreakEvenAnalysis, title: 'Break-Even Analysis' },
+  'breakeven': { component: BreakEvenAnalysis, title: 'Break-Even & Pricing Strategy' },
   'scenario': { component: ScenarioTester, title: 'Scenario Tester' },
   'loan': { component: LoanAmortization, title: 'Loan Amortization' },
   'working-capital': { component: WorkingCapitalCCC, title: 'Working Capital Optimizer' },
