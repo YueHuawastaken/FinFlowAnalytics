@@ -26,6 +26,7 @@ export default function CAPMPortfolioAnalyzer() {
   // Market parameters
   const [riskFreeRate, setRiskFreeRate] = useState(0.03); // 3%
   const [marketReturn, setMarketReturn] = useState(0.10); // 10%
+  const [marketStdDev, setMarketStdDev] = useState(0.16); // 16%
   
   // Asset A parameters
   const [betaA, setBetaA] = useState(1.2);
@@ -48,6 +49,24 @@ export default function CAPMPortfolioAnalyzer() {
     // CAPM expected returns
     const capmA = riskFreeRate + betaA * (marketReturn - riskFreeRate);
     const capmB = riskFreeRate + betaB * (marketReturn - riskFreeRate);
+    const alphaA = muA - capmA;
+    const alphaB = muB - capmB;
+    const maxBeta = Math.max(2.0, betaA, betaB, 1.0);
+    const smlLine = [
+      { beta: 0, expectedReturn: riskFreeRate },
+      { beta: maxBeta, expectedReturn: riskFreeRate + maxBeta * (marketReturn - riskFreeRate) }
+    ];
+    const smlPoints = [
+      { name: 'Risk-Free', beta: 0, expectedReturn: riskFreeRate, color: '#0f766e' },
+      { name: 'Market', beta: 1, expectedReturn: marketReturn, color: '#2563eb' },
+      { name: 'Asset A', beta: betaA, expectedReturn: muA, color: alphaA >= 0 ? '#16a34a' : '#dc2626' },
+      { name: 'Asset B', beta: betaB, expectedReturn: muB, color: alphaB >= 0 ? '#16a34a' : '#dc2626' }
+    ];
+    const smlYMax = Math.max(0.20, riskFreeRate + maxBeta * (marketReturn - riskFreeRate), muA, muB, marketReturn);
+    const cmlLine = [
+      { stdDev: 0, expectedReturn: riskFreeRate },
+      { stdDev: marketStdDev, expectedReturn: marketReturn }
+    ];
     
     // Portfolio calculations
     const portfolioReturn = w * muA + wB * muB;
@@ -90,6 +109,8 @@ export default function CAPMPortfolioAnalyzer() {
     return {
       capmA,
       capmB,
+      alphaA,
+      alphaB,
       portfolioReturn,
       portfolioBeta,
       portfolioStdDev,
@@ -97,9 +118,15 @@ export default function CAPMPortfolioAnalyzer() {
       sharpeB,
       sharpePortfolio,
       efficientFrontier,
-      optimalPortfolio
+      optimalPortfolio,
+      smlLine,
+      smlPoints,
+      smlYMax,
+      maxBeta,
+      cmlLine,
+      marketStdDev
     };
-  }, [riskFreeRate, marketReturn, betaA, muA, sigmaA, betaB, muB, sigmaB, correlation, weightA]);
+  }, [riskFreeRate, marketReturn, marketStdDev, betaA, muA, sigmaA, betaB, muB, sigmaB, correlation, weightA]);
 
   const getSharpeRating = (sharpe) => {
     if (sharpe > 1.0) return { level: 'excellent', color: 'text-green-600', bg: 'bg-green-100' };
@@ -149,6 +176,17 @@ export default function CAPMPortfolioAnalyzer() {
                     step="0.01"
                     value={(marketReturn * 100).toFixed(2)}
                     onChange={(e) => setMarketReturn((Number(e.target.value) || 0) / 100)}
+                    className="font-mono"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Market Std Dev (%)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={(marketStdDev * 100).toFixed(2)}
+                    onChange={(e) => setMarketStdDev((Number(e.target.value) || 0) / 100)}
                     className="font-mono"
                   />
                 </div>
@@ -276,14 +314,121 @@ export default function CAPMPortfolioAnalyzer() {
                   <p className="text-xs sm:text-sm font-medium text-gray-500">Asset A (CAPM)</p>
                   <p className="text-lg sm:text-xl font-bold">{formatPercent(analysis.capmA)}</p>
                   <p className="text-xs text-gray-500">vs Actual: {formatPercent(muA)}</p>
+                  <p className={`mt-2 text-sm font-medium ${analysis.alphaA >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {analysis.alphaA >= 0 ? '+' : ''}{formatPercent(analysis.alphaA)}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {analysis.alphaA >= 0 ? 'Positive alpha = undervalued (above SML)' : 'Negative alpha = overvalued (below SML)'}
+                  </p>
                 </Card>
                 
                 <Card className="p-3 sm:p-4">
                   <p className="text-xs sm:text-sm font-medium text-gray-500">Asset B (CAPM)</p>
                   <p className="text-lg sm:text-xl font-bold">{formatPercent(analysis.capmB)}</p>
                   <p className="text-xs text-gray-500">vs Actual: {formatPercent(muB)}</p>
+                  <p className={`mt-2 text-sm font-medium ${analysis.alphaB >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {analysis.alphaB >= 0 ? '+' : ''}{formatPercent(analysis.alphaB)}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {analysis.alphaB >= 0 ? 'Positive alpha = undervalued (above SML)' : 'Negative alpha = overvalued (below SML)'}
+                  </p>
                 </Card>
               </div>
+            </div>
+
+            {/* SML Chart */}
+            <div className="space-y-2">
+              <h3 className="font-semibold text-base lg:text-lg">Security Market Line (SML)</h3>
+              <div className="h-56 sm:h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={analysis.smlLine} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis 
+                      dataKey="beta"
+                      type="number"
+                      domain={[0, analysis.maxBeta]}
+                      tick={{ fontSize: 10 }}
+                      label={{ value: 'Beta', position: 'insideBottom', offset: -5, style: { fontSize: '10px' } }}
+                    />
+                    <YAxis 
+                      dataKey="expectedReturn"
+                      type="number" 
+                      domain={[0, analysis.smlYMax]}
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={formatPercent}
+                      label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }}
+                      width={55}
+                    />
+                    <Tooltip 
+                      formatter={(value, name) => [formatPercent(value), name || 'Expected Return']}
+                      labelFormatter={(label) => `Beta: ${label}`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                    <Line 
+                      type="linear"
+                      dataKey="expectedReturn"
+                      name="SML"
+                      stroke="#0f766e"
+                      dot={false}
+                      strokeWidth={3}
+                    />
+                    <Scatter 
+                      name="SML Points"
+                      data={analysis.smlPoints}
+                      fill="#f59e0b"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* CML Chart */}
+            <div className="space-y-2">
+              <h3 className="font-semibold text-base lg:text-lg">Capital Market Line (CML)</h3>
+              <div className="h-56 sm:h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={analysis.cmlLine} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis 
+                      dataKey="stdDev"
+                      type="number"
+                      domain={[0, analysis.marketStdDev || 0.25]}
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={formatPercent}
+                      label={{ value: 'Risk (Std Dev)', position: 'insideBottom', offset: -5, style: { fontSize: '10px' } }}
+                    />
+                    <YAxis 
+                      dataKey="expectedReturn"
+                      type="number" 
+                      domain={[0, analysis.smlYMax]}
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={formatPercent}
+                      label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }}
+                      width={55}
+                    />
+                    <Tooltip 
+                      formatter={(value, name) => [formatPercent(value), name || 'Expected Return']}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                    <Line 
+                      type="linear"
+                      dataKey="expectedReturn"
+                      name="CML"
+                      stroke="#2563eb"
+                      dot={false}
+                      strokeWidth={3}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Interpretation Summary */}
+            <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-950/20 border border-gray-200 dark:border-gray-800 text-sm text-gray-700 dark:text-gray-300">
+              <p className="font-semibold mb-2">Interpretation Summary</p>
+              <p className="mb-1">If an asset plots <strong>above the SML</strong> → Positive Alpha → <strong>Undervalued</strong> → <span className="font-semibold">BUY</span></p>
+              <p className="mb-1">If an asset plots <strong>below the SML</strong> → Negative Alpha → <strong>Overvalued</strong> → <span className="font-semibold">SELL</span></p>
+              <p>In equilibrium, all assets should lie <strong>on the SML</strong> (alpha = 0).</p>
             </div>
 
             {/* Portfolio Metrics */}

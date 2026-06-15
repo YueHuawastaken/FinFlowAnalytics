@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from 'recharts';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, LineChart, Line } from 'recharts';
 import { BarChart3, Plus, X, Download, FileText, Settings, Target, TrendingUp, Shield, Zap, Info, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -62,6 +62,12 @@ const formatPercent = (value, decimals = 2) => {
 const formatNumber = (value, decimals = 2) => {
   if (typeof value !== 'number' || !isFinite(value)) return 'N/A';
   return value.toFixed(decimals);
+};
+
+const formatAlpha = (value) => {
+  if (typeof value !== 'number' || !isFinite(value)) return 'N/A';
+  const sign = value >= 0 ? '+' : '-';
+  return `${sign}${(Math.abs(value) * 100).toFixed(2)}%`;
 };
 
 // Matrix operations for portfolio calculations
@@ -355,18 +361,80 @@ export default function PortfolioAnalysisToolkit() {
     // Benchmark metrics
     const benchmarkReturn = benchmark.return / 100;
     const benchmarkVolatility = benchmark.volatility / 100;
+    const portfolioBeta = assets.reduce((sum, asset, index) => {
+      const weight = currentWeights[index] || 0;
+      return sum + weight * (asset.beta || 0);
+    }, 0);
+    const portfolioCapmReturn = riskFreeRateDecimal + portfolioBeta * (benchmarkReturn - riskFreeRateDecimal);
+    const portfolioAlpha = currentMetrics.expectedReturn - portfolioCapmReturn;
+    const portfolioTreynor = portfolioBeta !== 0 ? (currentMetrics.expectedReturn - riskFreeRateDecimal) / portfolioBeta : 0;
+    const benchmarkTreynor = benchmarkReturn - riskFreeRateDecimal; // Benchmark treated as market proxy with beta=1
+    const mSquared = riskFreeRateDecimal + (currentMetrics.sharpeRatio * benchmarkVolatility);
+    const assetsWithAlpha = assets.map((asset, index) => {
+      const assetReturn = asset.expectedReturn / 100;
+      const assetCapm = riskFreeRateDecimal + (asset.beta || 0) * (benchmarkReturn - riskFreeRateDecimal);
+      const alpha = assetReturn - assetCapm;
+      return {
+        ...asset,
+        alpha,
+        currentWeight: currentWeights[index] || 0
+      };
+    });
+    const positiveAlphaAssets = assetsWithAlpha.filter(asset => asset.alpha > 0);
+    const negativeAlphaAssets = assetsWithAlpha.filter(asset => asset.alpha < 0);
+    const positiveAlphaWeight = positiveAlphaAssets.reduce((sum, asset) => sum + asset.currentWeight, 0);
+    const maxBeta = Math.max(2.0, 1, portfolioBeta, ...assets.map(a => a.beta || 0));
+    const smlYMax = Math.max(0.20, benchmarkReturn, currentMetrics.expectedReturn, ...assetsWithAlpha.map(a => a.expectedReturn / 100));
+    const smlLine = [
+      { beta: 0, expectedReturn: riskFreeRateDecimal },
+      { beta: maxBeta, expectedReturn: riskFreeRateDecimal + maxBeta * (benchmarkReturn - riskFreeRateDecimal) }
+    ];
+    const smlScatter = [
+      { name: benchmark.label, beta: 1, expectedReturn: benchmarkReturn, fill: '#2563eb', alpha: 0 },
+      { name: 'Current Portfolio', beta: portfolioBeta, expectedReturn: currentMetrics.expectedReturn, fill: '#f59e0b', alpha: portfolioAlpha }
+    ].concat(assetsWithAlpha.map(asset => ({
+      name: asset.label,
+      beta: asset.beta || 0,
+      expectedReturn: asset.expectedReturn / 100,
+      fill: asset.alpha >= 0 ? '#16a34a' : '#dc2626',
+      alpha: asset.alpha
+    })));
+    const cmlLine = benchmarkVolatility > 0 ? [
+      { volatility: 0, expectedReturn: riskFreeRateDecimal },
+      { volatility: benchmarkVolatility, expectedReturn: benchmarkReturn }
+    ] : [];
+    const mSquaredDescription = `M² = Rf + Sharpe × benchmark volatility. Adjusted portfolio return at benchmark risk.`;
+
     const benchmarkMetrics = {
       expectedReturn: benchmarkReturn,
       volatility: benchmarkVolatility,
       sharpeRatio: benchmarkVolatility > 0 ? (benchmarkReturn - riskFreeRateDecimal) / benchmarkVolatility : 0,
-      returnToRiskRatio: benchmarkVolatility > 0 ? benchmarkReturn / benchmarkVolatility : 0
+      returnToRiskRatio: benchmarkVolatility > 0 ? benchmarkReturn / benchmarkVolatility : 0,
+      treynorRatio: benchmarkTreynor,
+      alpha: 0
     };
     
     return {
       currentMetrics,
       optimalPortfolio,
       efficientFrontier,
-      benchmarkMetrics
+      benchmarkMetrics,
+      portfolioBeta,
+      portfolioCapmReturn,
+      portfolioAlpha,
+      portfolioTreynor,
+      benchmarkTreynor,
+      mSquared,
+      mSquaredDescription,
+      assetsWithAlpha,
+      positiveAlphaAssets,
+      negativeAlphaAssets,
+      positiveAlphaWeight,
+      smlLine,
+      smlScatter,
+      smlYMax,
+      maxBeta,
+      cmlLine
     };
   }, [assets, currentWeights, effectiveCorrelationMatrix, benchmark, riskFreeRate, storedOptimalPortfolio]);
 
@@ -599,6 +667,7 @@ export default function PortfolioAnalysisToolkit() {
                         <TableHead>Expected Return (%)</TableHead>
                         <TableHead>Volatility (%)</TableHead>
                         <TableHead>Beta</TableHead>
+                        <TableHead>Alpha</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Current Weight (%)</TableHead>
                         <TableHead className="w-[50px]"></TableHead>
@@ -656,6 +725,11 @@ export default function PortfolioAnalysisToolkit() {
                               </TooltipTrigger>
                               <TooltipContent>Sensitivity to market movements (1.0 = market average)</TooltipContent>
                             </UITooltip>
+                          </TableCell>
+                          <TableCell className={`font-mono w-20 text-right ${portfolioAnalysis?.assetsWithAlpha?.find(a => a.id === asset.id)?.alpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {portfolioAnalysis?.assetsWithAlpha?.find(a => a.id === asset.id)
+                              ? formatAlpha(portfolioAnalysis.assetsWithAlpha.find(a => a.id === asset.id).alpha)
+                              : 'N/A'}
                           </TableCell>
                           <TableCell>
                             <Select 
@@ -1351,6 +1425,9 @@ export default function PortfolioAnalysisToolkit() {
                                 <TableCell className="text-right font-mono text-sm">
                                   {formatPercent(asset.volatility / 100)}
                                 </TableCell>
+                                <TableCell className={`text-right font-mono ${portfolioAnalysis.assetsWithAlpha[index]?.alpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {formatAlpha(portfolioAnalysis.assetsWithAlpha[index]?.alpha)}
+                                </TableCell>
                               </TableRow>
                             );
                           })}
@@ -1425,6 +1502,7 @@ export default function PortfolioAnalysisToolkit() {
                             <TableHead className="text-right">Risk (Volatility)</TableHead>
                             <TableHead className="text-right">Sharpe Ratio</TableHead>
                             <TableHead className="text-right">Return-to-Risk</TableHead>
+                            <TableHead className="text-right">Alpha</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1442,6 +1520,9 @@ export default function PortfolioAnalysisToolkit() {
                             <TableCell className="text-right font-mono">
                               {portfolioAnalysis.currentMetrics ? formatNumber(portfolioAnalysis.currentMetrics.returnToRiskRatio, 3) : 'N/A'}
                             </TableCell>
+                            <TableCell className={`text-right font-mono ${portfolioAnalysis.portfolioAlpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {portfolioAnalysis.portfolioAlpha !== undefined ? formatAlpha(portfolioAnalysis.portfolioAlpha) : 'N/A'}
+                            </TableCell>
                           </TableRow>
                           
                           <TableRow className="bg-green-50 dark:bg-green-950/20">
@@ -1457,6 +1538,9 @@ export default function PortfolioAnalysisToolkit() {
                             </TableCell>
                             <TableCell className="text-right font-mono text-green-600">
                               {portfolioAnalysis.optimalPortfolio ? formatNumber(portfolioAnalysis.optimalPortfolio.metrics.returnToRiskRatio, 3) : 'N/A'}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-green-600">
+                              N/A
                             </TableCell>
                           </TableRow>
                           
@@ -1474,6 +1558,9 @@ export default function PortfolioAnalysisToolkit() {
                              <TableCell className="text-right font-mono">
                               {portfolioAnalysis.benchmarkMetrics ? formatNumber(portfolioAnalysis.benchmarkMetrics.returnToRiskRatio, 3) : 'N/A'}
                             </TableCell>
+                            <TableCell className="text-right font-mono text-blue-600">
+                              {portfolioAnalysis.benchmarkMetrics ? formatAlpha(portfolioAnalysis.benchmarkMetrics.alpha) : '0.00%'}
+                            </TableCell>
                           </TableRow>
                         </TableBody>
                       </Table>
@@ -1481,7 +1568,174 @@ export default function PortfolioAnalysisToolkit() {
                   </CardContent>
                 </Card>
 
-                {/* Improvement Opportunities */}
+                {/* Performance Attribution */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base sm:text-lg">Performance Attribution (Chapter 8)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-950/20 border border-slate-200 dark:border-slate-800">
+                        <p className="text-sm text-gray-600">Portfolio Alpha</p>
+                        <p className={`text-xl font-semibold ${portfolioAnalysis.portfolioAlpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatAlpha(portfolioAnalysis.portfolioAlpha)}
+                        </p>
+                        <p className="text-xs text-gray-500">Actual return minus CAPM benchmark return</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-950/20 border border-slate-200 dark:border-slate-800">
+                        <p className="text-sm text-gray-600">Positive Alpha Assets</p>
+                        <p className="text-xl font-semibold text-green-600">{portfolioAnalysis.positiveAlphaAssets.length}</p>
+                        <p className="text-xs text-gray-500">of {assets.length} assets</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-950/20 border border-slate-200 dark:border-slate-800">
+                        <p className="text-sm text-gray-600">Positive Alpha Weight</p>
+                        <p className="text-xl font-semibold text-green-600">{formatPercent(portfolioAnalysis.positiveAlphaWeight)}</p>
+                        <p className="text-xs text-gray-500">Portfolio weight in positive-alpha assets</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 p-4 rounded-lg bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-sm text-gray-700 dark:text-gray-300">
+                      <p className="font-semibold mb-2">Interpretation</p>
+                      <p>{portfolioAnalysis.portfolioAlpha >= 0 ? 'This portfolio has skill in stock selection and has outperformed its benchmark on a risk-adjusted basis.' : 'This portfolio has underperformed its benchmark on a risk-adjusted basis, suggesting selection or timing may need review.'}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base sm:text-lg">Risk-Adjusted Performance</CardTitle>
+                    <p className="text-sm text-gray-500">Treynor and M² measures compared with benchmark performance</p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40">
+                        <p className="text-sm text-gray-600">Portfolio Treynor</p>
+                        <p className="text-xl font-semibold text-blue-700">{portfolioAnalysis.portfolioTreynor ? formatNumber(portfolioAnalysis.portfolioTreynor, 3) : 'N/A'}</p>
+                        <p className="text-xs text-gray-500">(Return - Rf) / β_portfolio</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900/40">
+                        <p className="text-sm text-gray-600">Benchmark Treynor</p>
+                        <p className="text-xl font-semibold text-green-700">{portfolioAnalysis.benchmarkTreynor ? formatNumber(portfolioAnalysis.benchmarkTreynor, 3) : 'N/A'}</p>
+                        <p className="text-xs text-gray-500">Benchmark excess return per unit beta</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-900/40">
+                        <p className="text-sm text-gray-600">M² (Modigliani-Modigliani)</p>
+                        <p className="text-xl font-semibold text-yellow-800">{formatPercent(portfolioAnalysis.mSquared)}</p>
+                        <p className="text-xs text-gray-500">Adjusted return at benchmark risk</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 text-sm text-gray-700 dark:text-gray-300">
+                      <p className="font-semibold mb-2">Metric explanations</p>
+                      <p className="mb-1"><strong>Treynor Ratio:</strong> Measures excess return relative to systematic risk (beta).</p>
+                      <p className="mb-1"><strong>M²:</strong> Converts Sharpe ratio into a risk-adjusted return using benchmark volatility.</p>
+                      <p><strong>Jensen's Alpha:</strong> Portfolio outperformance relative to the CAPM expected return.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base sm:text-lg">Security Market Line (SML)</CardTitle>
+                    <p className="text-sm text-gray-500">Beta vs expected return for assets, portfolio, and benchmark</p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <XAxis 
+                            dataKey="beta" 
+                            type="number"
+                            domain={[0, portfolioAnalysis.maxBeta]}
+                            tick={{ fontSize: 12 }}
+                            label={{ value: 'Beta', position: 'insideBottom', offset: -5, style: { fontSize: '12px' } }}
+                          />
+                          <YAxis 
+                            dataKey="expectedReturn" 
+                            type="number"
+                            domain={[0, portfolioAnalysis.smlYMax]}
+                            tick={{ fontSize: 12 }}
+                            tickFormatter={(value) => formatPercent(value)}
+                            label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '12px' } }}
+                          />
+                          <Tooltip formatter={(value) => formatPercent(value)} cursor={{ strokeDasharray: '3 3' }} />
+                          <Legend wrapperStyle={{ fontSize: '12px' }} />
+                          <Line 
+                            type="linear"
+                            data={portfolioAnalysis.smlLine}
+                            dataKey="expectedReturn"
+                            stroke="#0f766e"
+                            dot={false}
+                            strokeWidth={3}
+                            name="SML"
+                          />
+                          <Scatter 
+                            name="Assets & Portfolio"
+                            data={portfolioAnalysis.smlScatter}
+                            fill="#f59e0b"
+                            shape="circle"
+                          />
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base sm:text-lg">Capital Market Line (CML)</CardTitle>
+                    <p className="text-sm text-gray-500">Volatility vs expected return for the risk-free asset and market benchmark</p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <XAxis 
+                            type="number"
+                            dataKey="volatility"
+                            domain={[0, Math.max(portfolioAnalysis.benchmarkMetrics.volatility, portfolioAnalysis.currentMetrics.volatility, 0.05)]}
+                            tick={{ fontSize: 12 }}
+                            tickFormatter={(value) => formatPercent(value)}
+                            label={{ value: 'Volatility', position: 'insideBottom', offset: -5, style: { fontSize: '12px' } }}
+                          />
+                          <YAxis 
+                            type="number"
+                            dataKey="expectedReturn"
+                            domain={[0, Math.max(portfolioAnalysis.benchmarkMetrics.expectedReturn, portfolioAnalysis.currentMetrics.expectedReturn, 0.1)]}
+                            tick={{ fontSize: 12 }}
+                            tickFormatter={(value) => formatPercent(value)}
+                            label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '12px' } }}
+                          />
+                          <Tooltip formatter={(value) => formatPercent(value)} cursor={{ strokeDasharray: '3 3' }} />
+                          <Legend wrapperStyle={{ fontSize: '12px' }} />
+                          <Line 
+                            type="linear"
+                            data={portfolioAnalysis.cmlLine}
+                            dataKey="expectedReturn"
+                            stroke="#7c3aed"
+                            dot={false}
+                            strokeWidth={3}
+                            name="CML"
+                          />
+                          <Scatter 
+                            name="Current Portfolio"
+                            data={[{ volatility: portfolioAnalysis.currentMetrics.volatility, expectedReturn: portfolioAnalysis.currentMetrics.expectedReturn }]}
+                            fill="#f59e0b"
+                            shape="circle"
+                          />
+                          <Scatter 
+                            name="Benchmark"
+                            data={[{ volatility: portfolioAnalysis.benchmarkMetrics.volatility, expectedReturn: portfolioAnalysis.benchmarkMetrics.expectedReturn }]}
+                            fill="#2563eb"
+                            shape="diamond"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Optimization Summary */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base sm:text-lg">Optimization Summary</CardTitle>
@@ -1489,7 +1743,7 @@ export default function PortfolioAnalysisToolkit() {
                   <CardContent className="space-y-4">
                     {portfolioAnalysis.currentMetrics && portfolioAnalysis.optimalPortfolio ? (
                       <>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                           <div className="text-center p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20">
                             <p className="text-sm text-gray-600">Return Change</p>
                             <p className="text-lg font-bold text-blue-600">
@@ -1517,6 +1771,12 @@ export default function PortfolioAnalysisToolkit() {
                                 portfolioAnalysis.optimalPortfolio.metrics.sharpeRatio - 
                                 portfolioAnalysis.currentMetrics.sharpeRatio, 3
                               )}
+                            </p>
+                          </div>
+                          <div className="text-center p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/20">
+                            <p className="text-sm text-gray-600">Treynor Ratio</p>
+                            <p className="text-lg font-bold text-yellow-700">
+                              {portfolioAnalysis.portfolioTreynor ? formatNumber(portfolioAnalysis.portfolioTreynor, 3) : 'N/A'}
                             </p>
                           </div>
                         </div>

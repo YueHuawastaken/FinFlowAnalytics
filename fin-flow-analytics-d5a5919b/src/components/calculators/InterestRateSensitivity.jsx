@@ -41,6 +41,11 @@ const calculateTotalInterest = (principal, payment, termYears, paymentsPerYear) 
   return (payment * totalPayments) - principal;
 };
 
+const calculateEAR = (apr, paymentsPerYear) => {
+  if (apr === 0 || paymentsPerYear === 0) return 0;
+  return (Math.pow(1 + (apr / 100) / paymentsPerYear, paymentsPerYear) - 1) * 100;
+};
+
 export default function InterestRateSensitivity() {
   const [principal, setPrincipal] = useState(250000);
   const [baseAPR, setBaseAPR] = useState(6.5);
@@ -70,9 +75,11 @@ export default function InterestRateSensitivity() {
       const totalInterest = calculateTotalInterest(principal, payment, termYears, paymentsPerYear);
       const paymentChange = (payment - basePayment) / basePayment;
       const interestChange = (totalInterest - baseTotalInterest) / baseTotalInterest;
+      const ear = calculateEAR(rate, paymentsPerYear);
       
       scenarios.push({
         apr: rate,
+        ear,
         payment,
         totalInterest,
         paymentChange,
@@ -88,8 +95,10 @@ export default function InterestRateSensitivity() {
         const totalInterest = calculateTotalInterest(principal, payment, termYears, paymentsPerYear);
         const paymentChange = (payment - basePayment) / basePayment;
         const interestChange = (totalInterest - baseTotalInterest) / baseTotalInterest;
+        const ear = calculateEAR(maxRate, paymentsPerYear);
         scenarios.push({
             apr: maxRate,
+            ear,
             payment,
             totalInterest,
             paymentChange,
@@ -102,8 +111,10 @@ export default function InterestRateSensitivity() {
     if (!scenarios.some(s => s.isBase) && baseAPR >= minRate && baseAPR <= maxRate + 0.001) { // Check if baseAPR is within range
         const payment = calculatePayment(principal, baseAPR / 100, termYears, paymentsPerYear);
         const totalInterest = calculateTotalInterest(principal, payment, termYears, paymentsPerYear);
+        const ear = calculateEAR(baseAPR, paymentsPerYear);
         scenarios.push({
             apr: baseAPR,
+            ear,
             payment,
             totalInterest,
             paymentChange: 0,
@@ -252,6 +263,7 @@ export default function InterestRateSensitivity() {
               <h4 className="font-semibold mb-2 text-sm">Base Case Scenario</h4>
               <div className="text-sm space-y-1">
                 <p>APR: {baseAPR}%</p>
+                <p>EAR: {calculateEAR(baseAPR, paymentsPerYear).toFixed(2)}%</p>
                 <p>Payment: {formatCurrency(analysis.basePayment)}</p>
                 <p>Total Interest: {formatCurrency(analysis.baseTotalInterest)}</p>
               </div>
@@ -271,7 +283,16 @@ export default function InterestRateSensitivity() {
                   {formatCurrency(Math.max(...analysis.scenarios.map(s => s.payment)))}
                 </p>
                 <p className="text-xs text-gray-500">
-                  At {Math.max(...analysis.scenarios.map(s => s.apr)).toFixed(2)}% APR
+                  At {(() => {
+                    const worstScenario = analysis.scenarios.reduce((max, s) => s.payment > max.payment ? s : max);
+                    return worstScenario.apr.toFixed(2);
+                  })()}% APR
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  EAR: {(() => {
+                    const worstScenario = analysis.scenarios.reduce((max, s) => s.payment > max.payment ? s : max);
+                    return worstScenario.ear.toFixed(2);
+                  })()}%
                 </p>
               </Card>
 
@@ -336,6 +357,7 @@ export default function InterestRateSensitivity() {
                   <TableHeader className="sticky top-0 bg-white dark:bg-gray-950">
                     <TableRow>
                       <TableHead className="text-xs">APR (%)</TableHead>
+                      <TableHead className="text-xs">EAR (%)</TableHead>
                       <TableHead className="text-right text-xs">Payment</TableHead>
                       <TableHead className="text-right text-xs">Payment Δ</TableHead>
                       <TableHead className="text-right text-xs">Interest Δ</TableHead>
@@ -352,6 +374,9 @@ export default function InterestRateSensitivity() {
                           <TableCell className="text-sm">
                             {scenario.apr.toFixed(2)}%
                             {scenario.isBase && <Badge variant="secondary" className="ml-2 text-xs">Base</Badge>}
+                          </TableCell>
+                          <TableCell className="text-sm font-mono">
+                            {scenario.ear.toFixed(2)}%
                           </TableCell>
                           <TableCell className="text-right font-mono text-sm">
                             {formatCurrency(scenario.payment)}
@@ -381,6 +406,10 @@ export default function InterestRateSensitivity() {
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
+                          <p className="text-gray-500">EAR</p>
+                          <p className="font-mono font-semibold">{scenario.ear.toFixed(2)}%</p>
+                        </div>
+                        <div>
                           <p className="text-gray-500">Payment</p>
                           <p className="font-mono font-semibold">{formatCurrency(scenario.payment)}</p>
                         </div>
@@ -390,10 +419,27 @@ export default function InterestRateSensitivity() {
                             {scenario.paymentChange >= 0 ? '+' : ''}{formatPercent(scenario.paymentChange)}
                           </p>
                         </div>
+                        <div>
+                          <p className="text-gray-500">Interest Change</p>
+                          <p className={`font-mono font-semibold ${scenario.interestChange >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {scenario.interestChange >= 0 ? '+' : ''}{formatPercent(scenario.interestChange)}
+                          </p>
+                        </div>
                       </div>
                     </Card>
                   );
                 })}
+              </div>
+
+              {/* EAR Explanation Footnote */}
+              <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-800 text-xs text-gray-700 dark:text-gray-300">
+                <p className="font-semibold mb-1">Understanding EAR (Effective Annual Rate)</p>
+                <p className="mb-2">
+                  EAR is the annual interest rate that accounts for compounding frequency. Unlike APR (which is a stated rate), EAR shows the true yearly cost of borrowing by factoring in how many times interest compounds per year.
+                </p>
+                <p>
+                  <strong>Why it matters:</strong> When comparing loans with different payment schedules or compounding frequencies, EAR provides a more accurate comparison. For example, two loans with the same 6% APR but different payment frequencies will have different EARs and different true costs.
+                </p>
               </div>
             </div>
           </div>
