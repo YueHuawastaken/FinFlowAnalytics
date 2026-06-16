@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ComposedChart, Scatter, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, LabelList } from 'recharts';
+import { ComposedChart, Scatter, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from 'recharts';
 import { TrendingUp, DollarSign, Target, BarChart3 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -58,10 +58,10 @@ export default function CAPMPortfolioAnalyzer() {
       { beta: smlXMax, expectedReturn: riskFreeRate + smlXMax * (marketReturn - riskFreeRate) }
     ];
     const smlPoints = [
-      { name: '', beta: 0, expectedReturn: riskFreeRate, color: '#9ca3af', shape: 'diamond', size: 4 },
-      { name: '', beta: 1, expectedReturn: marketReturn, color: '#000000', shape: 'circle', size: 4 },
-      { name: '', beta: betaA, expectedReturn: muA, color: alphaA >= 0 ? '#16a34a' : '#dc2626', shape: 'triangle-up', size: 4 },
-      { name: '', beta: betaB, expectedReturn: muB, color: alphaB >= 0 ? '#16a34a' : '#dc2626', shape: 'triangle-down', size: 4 }
+      { name: 'Rf', beta: 0, expectedReturn: riskFreeRate, color: '#9ca3af', shape: 'diamond', size: 4 },
+      { name: 'Market', beta: 1, expectedReturn: marketReturn, color: '#000000', shape: 'circle', size: 4 },
+      { name: 'Asset A', beta: betaA, expectedReturn: muA, color: alphaA >= 0 ? '#16a34a' : '#dc2626', shape: 'triangle-up', size: 4 },
+      { name: 'Asset B', beta: betaB, expectedReturn: muB, color: alphaB >= 0 ? '#16a34a' : '#dc2626', shape: 'triangle-down', size: 4 }
     ];
     const smlYMax = Math.max(0.20, riskFreeRate + maxBeta * (marketReturn - riskFreeRate), muA, muB, marketReturn);
     const cmlLine = [
@@ -135,10 +135,10 @@ export default function CAPMPortfolioAnalyzer() {
       optimalPortfolio,
       smlLine,
       cmlPoints: [
-        { name: '', stdDev: 0, expectedReturn: riskFreeRate, color: '#9ca3af', shape: 'diamond', size: 4 },
-        { name: '', stdDev: marketStdDev, expectedReturn: marketReturn, color: '#000000', shape: 'circle', size: 4 },
-        { name: '', stdDev: portfolioStdDev, expectedReturn: portfolioReturn, color: '#2563eb', shape: 'square', size: 4 },
-        { name: '', stdDev: optimalPortfolio.stdDev, expectedReturn: optimalPortfolio.expectedReturn, color: '#16a34a', shape: 'circle', size: 4 }
+        { name: 'Rf', stdDev: 0, expectedReturn: riskFreeRate, color: '#9ca3af', shape: 'diamond', size: 4 },
+        { name: 'Market', stdDev: marketStdDev, expectedReturn: marketReturn, color: '#000000', shape: 'circle', size: 4 },
+        { name: 'Current Portfolio', stdDev: portfolioStdDev, expectedReturn: portfolioReturn, color: '#2563eb', shape: 'square', size: 4 },
+        { name: 'Optimal Portfolio', stdDev: optimalPortfolio.stdDev, expectedReturn: optimalPortfolio.expectedReturn, color: '#16a34a', shape: 'circle', size: 4 }
       ],
       cmlXMax: Math.max(marketStdDev, portfolioStdDev, optimalPortfolio.stdDev, 0.2) * 1.5,
       cmlYMin,
@@ -162,6 +162,26 @@ export default function CAPMPortfolioAnalyzer() {
     if (sharpe > 0.5) return { level: 'good', color: 'text-blue-600', bg: 'bg-blue-100' };
     if (sharpe > 0.2) return { level: 'fair', color: 'text-yellow-600', bg: 'bg-yellow-100' };
     return { level: 'poor', color: 'text-red-600', bg: 'bg-red-100' };
+  };
+
+  // Custom tooltip to ensure we show the exact payload.expectedReturn value
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || !payload.length) return null;
+    const scatterData = payload.filter(p => p && p.payload && p.payload.name);
+    const item = scatterData.length > 0 ? scatterData[0] : payload.find(p => p && p.payload && p.payload.expectedReturn !== undefined) || payload[0];
+    if (!item || !item.payload) return null;
+    const data = item.payload;
+    const name = data.name || item.name || 'Point';
+    const xLabel = data.beta !== undefined ? 'Beta' : 'Risk/Std Dev';
+    const xValue = data.beta !== undefined ? data.beta.toFixed(2) : (data.stdDev !== undefined ? data.stdDev.toFixed(2) : 'N/A');
+    const yValue = data.expectedReturn;
+    return (
+      <div className="rounded border bg-white p-2 text-xs shadow-sm">
+        <div className="font-semibold">{name}</div>
+        <div>{xLabel}: {xValue}</div>
+        <div>Return: {formatPercent(yValue)}</div>
+      </div>
+    );
   };
 
   // Custom point shapes for Recharts (return SVG elements)
@@ -414,6 +434,15 @@ export default function CAPMPortfolioAnalyzer() {
                       type="number"
                       domain={[0, analysis.smlXMax]}
                       tick={{ fontSize: 10 }}
+                      tickCount={7}
+                      tickFormatter={(value) => {
+    // Round to 1 decimal place to avoid floating point issues like 2.0999999999999996
+    const rounded = Math.round(value * 10) / 10;
+    // If it's a whole number, show as integer (e.g., "2" instead of "2.0")
+    if (rounded % 1 === 0) {
+      return rounded.toString();
+    }
+    return rounded.toFixed(1);   }}
                       label={{ value: 'Beta', position: 'insideBottom', offset: -5, style: { fontSize: '10px' } }}
                     />
                     <YAxis 
@@ -425,10 +454,7 @@ export default function CAPMPortfolioAnalyzer() {
                       label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }}
                       width={55}
                     />
-                    <Tooltip 
-                      formatter={(value, name) => [formatPercent(value), name || 'Expected Return']}
-                      labelFormatter={(label) => `Beta: ${label}`}
-                    />
+                    <Tooltip content={<CustomTooltip />} />
                     <Legend payload={smlLegendPayload} wrapperStyle={{ fontSize: '12px' }} />
                     <Line 
                       type="linear"
@@ -437,6 +463,7 @@ export default function CAPMPortfolioAnalyzer() {
                       stroke="#1d4ed8"
                       dot={false}
                       strokeWidth={3}
+                      tooltipType="none"
                     />
                     {
                       analysis.smlPoints.map((p) => {
@@ -449,9 +476,7 @@ export default function CAPMPortfolioAnalyzer() {
                           : (props) => <Triangle {...props} fill={p.color} stroke="#374151" size={p.size} up={false} />;
 
                         return (
-                          <Scatter key={p.name} name={p.name} data={[p]} dataKey="expectedReturn" shape={shape}>
-                            <LabelList dataKey="name" position="right" offset={8} />
-                          </Scatter>
+                          <Scatter key={p.name} name={p.name} data={[p]} dataKey="expectedReturn" shape={shape} />
                         );
                       })
                     }
@@ -503,19 +528,7 @@ export default function CAPMPortfolioAnalyzer() {
                       label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }}
                       width={55}
                     />
-                    <Tooltip 
-  formatter={(value, name) => [formatPercent(value), name || 'Expected Return']}
-  contentStyle={{ 
-    fontSize: '10px', 
-    padding: '4px 6px', 
-    background: 'rgba(255,255,255,0.95)',
-    border: '1px solid #ccc',
-    borderRadius: '4px'
-  }}
-  itemStyle={{ padding: '0px' }}
-  labelStyle={{ fontSize: '10px', fontWeight: 'bold' }}
-  offset={5}
-/>
+                    <Tooltip content={<CustomTooltip />} />
                     <Legend payload={cmlLegendPayload} wrapperStyle={{ fontSize: '12px' }} />
                     <Line 
                       type="linear"
@@ -525,6 +538,7 @@ export default function CAPMPortfolioAnalyzer() {
                       strokeDasharray="6 4"
                       dot={false}
                       strokeWidth={3}
+                      tooltipType="none"
                     />
                     {
                       analysis.cmlPoints.map((p) => {
@@ -533,9 +547,7 @@ export default function CAPMPortfolioAnalyzer() {
                         if (p.shape === 'square') shapeFn = (props) => <Square {...props} fill={p.color} stroke="#1f2937" size={p.size} />;
 
                         return (
-                          <Scatter key={p.name} name={p.name} data={[p]} dataKey="expectedReturn" shape={shapeFn}>
-                            <LabelList dataKey="name" position="right" offset={8} />
-                          </Scatter>
+                          <Scatter key={p.name} name={p.name} data={[p]} dataKey="expectedReturn" shape={shapeFn} />
                         );
                       })
                     }
@@ -638,11 +650,7 @@ export default function CAPMPortfolioAnalyzer() {
                       label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }}
                       width={50}
                     />
-                    <Tooltip 
-                      formatter={(value, name) => [formatPercent(value), name]}
-                      labelFormatter={() => ''}
-                      cursor={{ strokeDasharray: '3 3' }}
-                    />
+                    <Tooltip content={<CustomTooltip />} />
                     <Legend payload={efLegendPayload} wrapperStyle={{ fontSize: '12px' }} />
                     <Line
                       type="monotone"
@@ -652,6 +660,7 @@ export default function CAPMPortfolioAnalyzer() {
                       dot={false}
                       activeDot={{ r: 3, fill: '#38bdf8', stroke: '#0ea5e9', strokeWidth: 2 }}
                       isAnimationActive={false}
+                      tooltipType="none"
                     />
                     <Scatter
                       name="Efficient Frontier"
@@ -661,17 +670,11 @@ export default function CAPMPortfolioAnalyzer() {
                       shape={(props) => <Circle {...props} fill="transparent" stroke="transparent" size={4} />}
                     />
                     {/* Current Portfolio */}
-                    <Scatter name="Current Portfolio" data={[{ stdDev: analysis.portfolioStdDev, expectedReturn: analysis.portfolioReturn, name: '' }]} dataKey="expectedReturn" shape={(props) => <Square {...props} fill="#2563eb" stroke="#1f2937" size={4} />}>
-                      <LabelList dataKey="name" position="right" offset={8} />
-                    </Scatter>
+                    <Scatter name="Current Portfolio" data={[{ stdDev: analysis.portfolioStdDev, expectedReturn: analysis.portfolioReturn, name: 'Current Portfolio' }]} dataKey="expectedReturn" shape={(props) => <Square {...props} fill="#2563eb" stroke="#1f2937" size={4} />} />
                     {/* Optimal Portfolio */}
-                    <Scatter name="Optimal Portfolio" data={[{ stdDev: analysis.optimalPortfolio.stdDev, expectedReturn: analysis.optimalPortfolio.expectedReturn, name: '' }]} dataKey="expectedReturn" shape={(props) => <Circle {...props} fill="#16a34a" stroke="#065f46" size={4} />}>
-                      <LabelList dataKey="name" position="right" offset={8} />
-                    </Scatter>
+                    <Scatter name="Optimal Portfolio" data={[{ stdDev: analysis.optimalPortfolio.stdDev, expectedReturn: analysis.optimalPortfolio.expectedReturn, name: 'Optimal Portfolio' }]} dataKey="expectedReturn" shape={(props) => <Circle {...props} fill="#16a34a" stroke="#065f46" size={4} />} />
                     {/* Minimum Variance (hollow) */}
-                    <Scatter name="Min Variance" data={[{ stdDev: analysis.minVariance.stdDev, expectedReturn: analysis.minVariance.expectedReturn, name: '' }]} dataKey="expectedReturn" shape={(props) => <HollowCircle {...props} stroke="#6b7280" size={4} />}>
-                      <LabelList dataKey="name" position="right" offset={8} />
-                    </Scatter>
+                    <Scatter name="Min Variance" data={[{ stdDev: analysis.minVariance.stdDev, expectedReturn: analysis.minVariance.expectedReturn, name: 'Min Variance' }]} dataKey="expectedReturn" shape={(props) => <HollowCircle {...props} stroke="#6b7280" size={4} />} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
