@@ -475,17 +475,11 @@ export default function PortfolioAnalysisToolkit() {
     ));
   }, []);
 
-  // Update weight with change tracking and immediate normalization
+  // Update weight without auto-normalization so users can type freely
   const updateWeight = useCallback((index, value) => {
     const newWeights = [...currentWeights];
-    newWeights[index] = value; // Value is already 0-1 decimal
-    
-    // Normalize weights to sum to 1
-    const sum = newWeights.reduce((acc, w) => acc + w, 0);
-    if (sum > 0) {
-      const normalizedWeights = newWeights.map(w => w / sum);
-      setCurrentWeights(normalizedWeights);
-    }
+    newWeights[index] = value;
+    setCurrentWeights(newWeights);
   }, [currentWeights]);
 
   // Apply optimal weights
@@ -608,6 +602,10 @@ export default function PortfolioAnalysisToolkit() {
     a.click();
     URL.revokeObjectURL(url);
   }, [assets, currentWeights, portfolioAnalysis]);
+
+  // Weight summary and validation
+  const totalWeight = currentWeights.reduce((sum, w) => sum + w, 0);
+  const isWeightBalanced = Math.abs(totalWeight - 1) < 0.001;
 
   return (
     <TooltipProvider>
@@ -861,6 +859,19 @@ export default function PortfolioAnalysisToolkit() {
                     </Card>
                   ))}
                 </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="text-sm text-gray-700 dark:text-gray-300">Total Weight: <span className="font-mono">{formatPercent(totalWeight)}</span> {isWeightBalanced ? '✅' : '⚠️'}</div>
+                </div>
+
+                {!isWeightBalanced && (
+                  <Alert className="mt-2">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      Total portfolio weight is {formatPercent(totalWeight)}. Please adjust weights to sum to 100% for accurate optimization.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 {/* Weight Controls */}
                 <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
@@ -1571,7 +1582,7 @@ export default function PortfolioAnalysisToolkit() {
                 {/* Performance Attribution */}
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base sm:text-lg">Performance Attribution (Chapter 8)</CardTitle>
+                    <CardTitle className="text-base sm:text-lg">Performance Attribution</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
