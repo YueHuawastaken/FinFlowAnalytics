@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, LineChart, Line } from 'recharts';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, LineChart, Line, ComposedChart } from 'recharts';
 import { BarChart3, Plus, X, Download, FileText, Settings, Target, TrendingUp, Shield, Zap, Info, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -58,6 +58,19 @@ const formatPercent = (value, decimals = 2) => {
   if (typeof value !== 'number' || !isFinite(value)) return 'N/A';
   return `${(value * 100).toFixed(decimals)}%`;
 };
+// Color palette for SML assets - unique colors for each asset
+const ASSET_COLORS = [
+  '#2563eb', // 1 - Blue
+  '#f59e0b', // 2 - Amber
+  '#8b5cf6', // 3 - Purple
+  '#ec4899', // 4 - Pink
+  '#14b8a6', // 5 - Teal
+  '#f97316', // 6 - Orange
+  '#6366f1', // 7 - Indigo
+  '#84cc16', // 8 - Lime
+  '#06b6d4', // 9 - Cyan
+  '#ef4444', // 10 - Red
+];
 
 const formatNumber = (value, decimals = 2) => {
   if (typeof value !== 'number' || !isFinite(value)) return 'N/A';
@@ -1643,7 +1656,7 @@ export default function PortfolioAnalysisToolkit() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                {/* <Card>
                   <CardHeader>
                     <CardTitle className="text-base sm:text-lg">Security Market Line (SML)</CardTitle>
                     <p className="text-sm text-gray-500">Beta vs expected return for assets, portfolio, and benchmark</p>
@@ -1689,9 +1702,155 @@ export default function PortfolioAnalysisToolkit() {
                       </ResponsiveContainer>
                     </div>
                   </CardContent>
-                </Card>
-
+                </Card> */}
                 <Card>
+  <CardHeader>
+    <CardTitle className="text-base sm:text-lg">Security Market Line (SML)</CardTitle>
+    <p className="text-sm text-gray-500">Beta vs expected return for assets, portfolio, and benchmark</p>
+  </CardHeader>
+  <CardContent>
+    <div className="h-80 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        {/* <ScatterChart> */}
+        <ComposedChart>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis 
+            dataKey="beta" 
+            type="number"
+            domain={[0, portfolioAnalysis.maxBeta]}
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value) => value.toFixed(1)}
+            label={{ value: 'Beta', position: 'insideBottom', offset: -5, style: { fontSize: '12px' } }}
+          />
+          <YAxis 
+            dataKey="expectedReturn" 
+            type="number"
+            domain={[0, portfolioAnalysis.smlYMax]}
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value) => formatPercent(value)}
+            label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '12px' } }}
+          />
+          {/* <Tooltip 
+            formatter={(value, name) => [formatPercent(value), name]}
+            labelFormatter={() => ''}
+            cursor={{ strokeDasharray: '3 3' }}
+          />
+          <Legend wrapperStyle={{ fontSize: '12px' }} /> */}
+          {/* <Tooltip 
+  formatter={(value, name, props) => {
+    // Check if this is the beta (x-axis) value by looking at the dataKey
+    if (props && props.dataKey === 'beta') {
+      return [value.toFixed(2), 'Beta'];
+    }
+    // Otherwise format as percentage (expected return)
+    return [formatPercent(value), name];
+  }}
+  labelFormatter={() => ''}
+  cursor={{ strokeDasharray: '3 3' }}
+/> */}
+<Tooltip 
+  content={({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      // Skip SML line tooltip
+      if (data.name === 'SML') return null;
+      
+      return (
+        <div className="p-3 bg-white border rounded-lg shadow-lg dark:bg-gray-800 text-sm">
+          <p className="font-semibold" style={{ color: data.fill || '#000' }}>
+            {data.name || 'Point'}
+          </p>
+          <p>Beta: {data.beta?.toFixed(2) || 'N/A'}</p>
+          <p>Return: {formatPercent(data.expectedReturn)}</p>
+          {data.alpha !== undefined && (
+            <p className={data.alpha >= 0 ? 'text-green-600' : 'text-red-600'}>
+              Alpha: {formatAlpha(data.alpha)}
+            </p>
+          )}
+        </div>
+      );
+    }
+    return null;
+  }}
+  cursor={{ strokeDasharray: '3 3' }}
+/>
+<Legend wrapperStyle={{ fontSize: '12px' }} />
+          
+          {/* SML Line - hidden from tooltip */}
+          <Line 
+            type="linear"
+            data={portfolioAnalysis.smlLine}
+            dataKey="expectedReturn"
+            stroke="#1d4ed8"
+            dot={false}
+            strokeWidth={3}
+            name="SML"
+            isAnimationActive={false}
+          />
+          
+          {/* Rf Point */}
+          <Scatter 
+            name="Rf"
+            data={[{ name : "Rf", beta: 0, expectedReturn: riskFreeRate / 100, fill: '#9ca3af' }]}
+            fill="#9ca3af"
+            shape="diamond"
+            r={6}
+          />
+          
+          {/* Benchmark Point */}
+          <Scatter 
+            name={benchmark.label}
+            data={[{ beta: 1, expectedReturn: benchmark.return / 100, fill: '#000000' }]}
+            fill="#000000"
+            shape="circle"
+            r={6}
+          />
+          
+          {/* Asset Points */}
+          {/* {portfolioAnalysis.assetsWithAlpha.map((asset) => (
+            <Scatter 
+              key={asset.id}
+              name={asset.label}
+              data={[{ beta: asset.beta || 0, expectedReturn: asset.expectedReturn / 100, fill: asset.alpha >= 0 ? '#16a34a' : '#dc2626' }]}
+              fill={asset.alpha >= 0 ? '#16a34a' : '#dc2626'}
+              shape={asset.alpha >= 0 ? "triangle" : "triangle"}
+              r={5}
+            />
+          ))} */}
+          {/* Asset Points - each with unique color from palette */}
+{portfolioAnalysis.assetsWithAlpha.map((asset, index) => (
+  <Scatter 
+    key={asset.id}
+    name={asset.label}
+    data={[{ 
+      name: asset.label, 
+      beta: asset.beta || 0, 
+      expectedReturn: asset.expectedReturn / 100,
+      alpha: asset.alpha,
+      fill: ASSET_COLORS[index % ASSET_COLORS.length]
+    }]}
+    fill={ASSET_COLORS[index % ASSET_COLORS.length]}
+    shape="circle"
+    r={6}
+  />
+))}
+          
+          {/* Current Portfolio Point */}
+          <Scatter 
+            name="Current Portfolio"
+            data={[{name :"Current Portfolio", beta: portfolioAnalysis.portfolioBeta, expectedReturn: portfolioAnalysis.currentMetrics.expectedReturn, fill: '#f59e0b' }]}
+            fill="#f59e0b"
+            shape="square"
+            r={6}
+          />
+        {/* </ScatterChart> */}
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  </CardContent>
+</Card>
+
+                {/* <Card>
                   <CardHeader>
                     <CardTitle className="text-base sm:text-lg">Capital Market Line (CML)</CardTitle>
                     <p className="text-sm text-gray-500">Volatility vs expected return for the risk-free asset and market benchmark</p>
@@ -1744,7 +1903,95 @@ export default function PortfolioAnalysisToolkit() {
                       </ResponsiveContainer>
                     </div>
                   </CardContent>
-                </Card>
+                </Card> */}
+                <Card>
+  <CardHeader>
+    <CardTitle className="text-base sm:text-lg">Capital Market Line (CML)</CardTitle>
+    <p className="text-sm text-gray-500">Volatility vs expected return for the risk-free asset and market benchmark</p>
+  </CardHeader>
+  <CardContent>
+    <div className="h-80 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <ScatterChart>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis 
+            type="number"
+            dataKey="volatility"
+            domain={[0, Math.max(portfolioAnalysis.benchmarkMetrics.volatility, portfolioAnalysis.currentMetrics.volatility, 0.05)]}
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value) => formatPercent(value)}
+            label={{ value: 'Risk (Std Dev)', position: 'insideBottom', offset: -5, style: { fontSize: '12px' } }}
+          />
+          <YAxis 
+            type="number"
+            dataKey="expectedReturn"
+            domain={[0, Math.max(portfolioAnalysis.benchmarkMetrics.expectedReturn, portfolioAnalysis.currentMetrics.expectedReturn, 0.1)]}
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value) => formatPercent(value)}
+            label={{ value: 'Expected Return', angle: -90, position: 'insideLeft', style: { fontSize: '12px' } }}
+          />
+          <Tooltip 
+            formatter={(value, name) => [formatPercent(value), name]}
+            labelFormatter={() => ''}
+            cursor={{ strokeDasharray: '3 3' }}
+          />
+          <Legend wrapperStyle={{ fontSize: '12px' }} />
+          
+          {/* CML Line - hidden from tooltip */}
+          <Line 
+            type="linear"
+            data={portfolioAnalysis.cmlLine}
+            dataKey="expectedReturn"
+            stroke="#2563eb"
+            strokeDasharray="6 4"
+            dot={false}
+            strokeWidth={3}
+            name="CML"
+            tooltipType="none"
+          />
+          
+          {/* Rf Point */}
+          <Scatter 
+            name="Rf"
+            data={[{ volatility: 0, expectedReturn: riskFreeRate / 100 }]}
+            fill="#9ca3af"
+            shape="diamond"
+            r={6}
+          />
+          
+          {/* Benchmark/Market Point */}
+          <Scatter 
+            name={benchmark.label}
+            data={[{ volatility: benchmark.volatility / 100, expectedReturn: benchmark.return / 100 }]}
+            fill="#000000"
+            shape="circle"
+            r={6}
+          />
+          
+          {/* Current Portfolio Point */}
+          <Scatter 
+            name="Current Portfolio"
+            data={[{ volatility: portfolioAnalysis.currentMetrics.volatility, expectedReturn: portfolioAnalysis.currentMetrics.expectedReturn }]}
+            fill="#f59e0b"
+            shape="square"
+            r={6}
+          />
+          
+          {/* Optimal Portfolio Point */}
+          {portfolioAnalysis.optimalPortfolio && (
+            <Scatter 
+              name="Optimal Portfolio"
+              data={[{ volatility: portfolioAnalysis.optimalPortfolio.metrics.volatility, expectedReturn: portfolioAnalysis.optimalPortfolio.metrics.expectedReturn }]}
+              fill="#10b981"
+              shape="circle"
+              r={6}
+            />
+          )}
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div>
+  </CardContent>
+</Card>
 
                 {/* Optimization Summary */}
                 <Card>
