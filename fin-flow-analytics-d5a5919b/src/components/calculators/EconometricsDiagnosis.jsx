@@ -1,3 +1,4 @@
+// export default EconometricsDiagnosis;
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,9 +13,7 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell
+  ReferenceLine
 } from 'recharts';
 import { 
   AlertTriangle, 
@@ -27,7 +26,6 @@ import {
   Info,
   Eye,
   EyeOff,
-  Download,
   FileText
 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -35,13 +33,22 @@ import { TooltipProvider, Tooltip as UITooltip, TooltipContent, TooltipTrigger }
 
 // ===== Utility Functions =====
 
-// Format numbers consistently
 const formatNumber = (num, decimals = 4) => {
   if (num === null || num === undefined || !isFinite(num)) return "N/A";
   return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
 
-// Get badge color based on value
+const formatNumberCompact = (num, decimals = 2) => {
+  if (num === null || num === undefined || !isFinite(num)) return "N/A";
+  if (Math.abs(num) >= 1000000) {
+    return (num / 1000000).toFixed(decimals) + 'M';
+  }
+  if (Math.abs(num) >= 1000) {
+    return (num / 1000).toFixed(decimals) + 'K';
+  }
+  return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+};
+
 const getDiagnosticBadge = (value, thresholds) => {
   if (value <= thresholds.good) {
     return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Good</Badge>;
@@ -57,10 +64,12 @@ const getDiagnosticBadge = (value, thresholds) => {
 const EconometricsDiagnosis = ({ 
   dataPoints = [], 
   regressionResults = null,
-  modelType = 'simple', // 'simple' or 'multiple'
+  modelType = 'simple',
   independentVariables = [],
   dependentVariable = '',
-  onRecommendationApply = null
+  onRecommendationApply = null,
+  defaultExpanded = false,
+  compact = false
 }) => {
   // State for expanded sections
   const [expandedSections, setExpandedSections] = useState({
@@ -106,22 +115,24 @@ const EconometricsDiagnosis = ({
       const se = regressionResults.standardErrorEstimate || 
                  Math.sqrt(residuals.reduce((acc, r) => acc + r.residual ** 2, 0) / (n - 2));
       
-      // Standardized residuals
       const standardizedResiduals = residuals.map(r => ({
         ...r,
-        standardized: r.residual / se
+        standardized: se !== 0 ? r.residual / se : 0
       }));
       
       results.residuals = {
         raw: residuals,
         standardized: standardizedResiduals,
         se: se,
-        // Outliers: |standardized residual| > 2
         outliers: standardizedResiduals.filter(r => Math.abs(r.standardized) > 2),
-        // Max residual
         maxResidual: Math.max(...residuals.map(r => Math.abs(r.residual))),
-        // Residual sum of squares
-        sse: residuals.reduce((acc, r) => acc + r.residual ** 2, 0)
+        sse: residuals.reduce((acc, r) => acc + r.residual ** 2, 0),
+        // For residual plot
+        residualPlotData: residuals.map((r, i) => ({
+          fitted: regressionResults.intercept + regressionResults.slope * r.x,
+          residual: r.residual,
+          x: r.x
+        }))
       };
       
       // 3. OUTLIER DIAGNOSTICS
@@ -139,13 +150,12 @@ const EconometricsDiagnosis = ({
       };
     }
 
-    // 4. HETEROSKEDASTICITY (Breusch-Pagan Test - Simple Version)
-    if (regressionResults.residuals && dataPoints.length >= 8) {
+    // 4. HETEROSKEDASTICITY (Breusch-Pagan Test - works with n>=6)
+    if (regressionResults.residuals && dataPoints.length >= 6) {
       const residuals = regressionResults.residuals;
       const squaredResiduals = residuals.map(r => r.residual ** 2);
       const xValues = dataPoints.map(p => p.x);
       
-      // Regress squared residuals on x
       const meanX = xValues.reduce((a, b) => a + b, 0) / n;
       const meanY = squaredResiduals.reduce((a, b) => a + b, 0) / n;
       
@@ -160,7 +170,6 @@ const EconometricsDiagnosis = ({
         const slope = numerator / denominator;
         const intercept = meanY - slope * meanX;
         
-        // R² of auxiliary regression
         const sst = squaredResiduals.reduce((acc, y) => acc + (y - meanY) ** 2, 0);
         const sse_aux = squaredResiduals.reduce((acc, y, i) => {
           const predicted = intercept + slope * xValues[i];
@@ -168,13 +177,11 @@ const EconometricsDiagnosis = ({
         }, 0);
         const rSquaredAux = sst === 0 ? 0 : 1 - (sse_aux / sst);
         
-        // F-statistic: F = (R²/k) / ((1-R²)/(n-k-1))
         const k = 1;
-        const fStat = (rSquaredAux / k) / ((1 - rSquaredAux) / (n - k - 1));
+        const fStat = sst === 0 ? 0 : (rSquaredAux / k) / ((1 - rSquaredAux) / (n - k - 1));
         
-        // Approximate p-value using F distribution
-        // For simplicity, use a rule of thumb: F > 4 suggests heteroskedasticity
-        const isHeteroskedastic = fStat > 4 && rSquaredAux > 0.1;
+        // Lower threshold for small samples
+        const isHeteroskedastic = fStat > 3.5 && rSquaredAux > 0.1;
         
         results.heteroskedasticity = {
           test: 'Breusch-Pagan (Simplified)',
@@ -192,7 +199,7 @@ const EconometricsDiagnosis = ({
       }
     }
 
-    // 5. AUTOCORRELATION (Durbin-Watson - Simple Version)
+    // 5. AUTOCORRELATION (Durbin-Watson)
     if (regressionResults.residuals && dataPoints.length >= 4) {
       const residuals = regressionResults.residuals.map(r => r.residual);
       let numerator_dw = 0;
@@ -205,7 +212,6 @@ const EconometricsDiagnosis = ({
       
       const durbinWatson = denominator_dw === 0 ? 2 : numerator_dw / denominator_dw;
       
-      // Rule of thumb: DW near 2 = no autocorrelation, <1 or >3 = concerns
       results.autocorrelation = {
         test: 'Durbin-Watson',
         statistic: durbinWatson,
@@ -219,23 +225,20 @@ const EconometricsDiagnosis = ({
       };
     }
 
-    // 6. NORMALITY (Simplified Shapiro-Wilk - quick check)
+    // 6. NORMALITY
     if (regressionResults.residuals && dataPoints.length >= 4) {
       const residuals = regressionResults.residuals.map(r => r.residual).sort((a, b) => a - b);
       const mean = residuals.reduce((a, b) => a + b, 0) / residuals.length;
       
-      // Calculate skewness
-      const skewness = residuals.reduce((acc, r) => acc + (r - mean) ** 3, 0) / 
-                      (residuals.length * Math.pow(
-                        residuals.reduce((acc, r) => acc + (r - mean) ** 2, 0) / residuals.length,
-                        1.5
-                      ));
+      const variance = residuals.reduce((acc, r) => acc + (r - mean) ** 2, 0) / residuals.length;
+      const stdDev = Math.sqrt(variance);
       
-      // Calculate kurtosis
-      const kurtosis = residuals.reduce((acc, r) => acc + (r - mean) ** 4, 0) / 
-                      Math.pow(residuals.reduce((acc, r) => acc + (r - mean) ** 2, 0) / residuals.length, 2);
+      const skewness = stdDev === 0 ? 0 : 
+        residuals.reduce((acc, r) => acc + (r - mean) ** 3, 0) / (residuals.length * stdDev ** 3);
       
-      // Quick normality check: skewness near 0, kurtosis near 3
+      const kurtosis = stdDev === 0 ? 3 :
+        residuals.reduce((acc, r) => acc + (r - mean) ** 4, 0) / (residuals.length * stdDev ** 4);
+      
       const isNormal = Math.abs(skewness) < 1 && Math.abs(kurtosis - 3) < 1;
       
       results.normality = {
@@ -250,13 +253,11 @@ const EconometricsDiagnosis = ({
       };
     }
 
-    // 7. MODEL SPECIFICATION (Ramsey RESET - Simplified)
+    // 7. MODEL SPECIFICATION
     if (regressionResults.residuals && dataPoints.length >= 6) {
-      // Check for nonlinear patterns by looking at residual vs fitted
       const fitted = dataPoints.map(p => regressionResults.intercept + regressionResults.slope * p.x);
       const residuals = regressionResults.residuals.map(r => r.residual);
       
-      // Simple test: correlation between residual and fitted^2
       const fittedSquared = fitted.map(f => f ** 2);
       const meanFitSq = fittedSquared.reduce((a, b) => a + b, 0) / fittedSquared.length;
       const meanRes = residuals.reduce((a, b) => a + b, 0) / residuals.length;
@@ -299,9 +300,8 @@ const EconometricsDiagnosis = ({
     // 9. SLOPE SIGNIFICANCE
     if (regressionResults.tStatisticSlope !== undefined) {
       const tStat = Math.abs(regressionResults.tStatisticSlope);
-      const n = dataPoints.length;
-      const df = n - 2;
-      const isSignificant = tStat > 2.0; // Rough rule of thumb
+      const df = dataPoints.length - 2;
+      const isSignificant = tStat > 2.0;
       
       results.slopeSignificance = {
         tStatistic: tStat,
@@ -344,17 +344,17 @@ const EconometricsDiagnosis = ({
 
   const renderSectionToggle = (title, section, icon) => (
     <div 
-      className="flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-2 rounded"
+      className="flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-1.5 rounded"
       onClick={() => toggleSection(section)}
     >
       <div className="flex items-center gap-2">
         {icon}
-        <span className="font-medium">{title}</span>
-        {diagnostics[section]?.status === 'good' && <CheckCircle className="h-4 w-4 text-green-500" />}
-        {diagnostics[section]?.status === 'warning' && <AlertTriangle className="h-4 w-4 text-yellow-500" />}
-        {diagnostics[section]?.status === 'needs_attention' && <XCircle className="h-4 w-4 text-red-500" />}
+        <span className="font-medium text-sm">{title}</span>
+        {diagnostics[section]?.status === 'good' && <CheckCircle className="h-3.5 w-3.5 text-green-500" />}
+        {diagnostics[section]?.status === 'warning' && <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />}
+        {diagnostics[section]?.status === 'needs_attention' && <XCircle className="h-3.5 w-3.5 text-red-500" />}
       </div>
-      {expandedSections[section] ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+      {expandedSections[section] ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
     </div>
   );
 
@@ -366,27 +366,34 @@ const EconometricsDiagnosis = ({
     };
     
     const statusIcons = {
-      good: <CheckCircle className="h-5 w-5 text-green-500" />,
-      warning: <AlertTriangle className="h-5 w-5 text-yellow-500" />,
-      needs_attention: <XCircle className="h-5 w-5 text-red-500" />
+      good: <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />,
+      warning: <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />,
+      needs_attention: <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
     };
 
+    const paddingClass = compact ? 'p-2.5' : 'p-4';
+    const textSizeClass = compact ? 'text-xs' : 'text-sm';
+
     return (
-      <Card className={`p-4 border-l-4 ${statusColors[status] || statusColors.good}`}>
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
+      <Card className={`${paddingClass} border-l-4 ${statusColors[status] || statusColors.good} overflow-hidden`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-medium">{title}</span>
+              <span className={`${textSizeClass} font-medium truncate`}>{title}</span>
               {statusIcons[status]}
             </div>
             {value !== undefined && value !== null && (
-              <p className="text-2xl font-bold mt-1">{typeof value === 'number' ? formatNumber(value) : value}</p>
+              <p className={`${compact ? 'text-base' : 'text-2xl'} font-bold mt-0.5 truncate`}>
+                {typeof value === 'number' ? formatNumber(value, 2) : value}
+              </p>
             )}
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{message}</p>
+            <p className={`${compact ? 'text-[10px]' : 'text-xs'} text-gray-600 dark:text-gray-400 mt-0.5 break-words`}>
+              {message}
+            </p>
             {recommendation && (
-              <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-sm">
+              <div className={`mt-1.5 p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded ${compact ? 'text-[10px]' : 'text-xs'}`}>
                 <span className="font-medium">💡 Recommendation: </span>
-                {recommendation}
+                <span className="break-words">{recommendation}</span>
               </div>
             )}
           </div>
@@ -400,7 +407,7 @@ const EconometricsDiagnosis = ({
   if (!diagnostics.isValid) {
     return (
       <Card className="w-full">
-        <CardContent className="p-6">
+        <CardContent className="p-4">
           <Alert>
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Cannot Run Diagnostics</AlertTitle>
@@ -413,258 +420,282 @@ const EconometricsDiagnosis = ({
     );
   }
 
+  const cardPadding = compact ? 'p-3' : 'p-6';
+
   return (
     <TooltipProvider>
       <Card className="w-full">
-        <CardHeader className="pb-4">
+        <CardHeader className={compact ? 'pb-2 pt-3 px-3' : 'pb-4'}>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900">
-                <Activity className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            <div className="flex items-center gap-2">
+              <div className={`p-1.5 rounded-lg bg-purple-100 dark:bg-purple-900`}>
+                <Activity className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} text-purple-600 dark:text-purple-400`} />
               </div>
               <div>
-                <CardTitle className="text-xl">Econometric Diagnostics</CardTitle>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Check the reliability of your regression model
-                </p>
+                <CardTitle className={`${compact ? 'text-sm' : 'text-xl'}`}>Econometric Diagnostics</CardTitle>
+                {!compact && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Check the reliability of your regression model
+                  </p>
+                )}
               </div>
             </div>
-            <Badge className={`text-lg px-4 py-2 ${
+            <Badge className={`${compact ? 'text-[10px] px-2 py-0.5' : 'text-lg px-4 py-2'} ${
               diagnostics.overall?.status === 'good' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
               diagnostics.overall?.status === 'warning' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
               'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
             }`}>
               {diagnostics.overall?.status === 'good' ? '✅ Healthy' :
-               diagnostics.overall?.status === 'warning' ? '⚠️ Proceed with Caution' :
+               diagnostics.overall?.status === 'warning' ? '⚠️ Caution' :
                '❌ Needs Attention'}
             </Badge>
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-6">
-          {/* Overall Assessment */}
-          <Alert variant="default" className={`border-l-4 ${
-            diagnostics.overall?.status === 'good' ? 'border-green-500 bg-green-50 dark:bg-green-950/20' :
-            diagnostics.overall?.status === 'warning' ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20' :
-            'border-red-500 bg-red-50 dark:bg-red-950/20'
-          }`}>
-            <div className="flex items-start gap-3">
-              {diagnostics.overall?.status === 'good' && <CheckCircle className="h-5 w-5 text-green-500" />}
-              {diagnostics.overall?.status === 'warning' && <AlertTriangle className="h-5 w-5 text-yellow-500" />}
-              {diagnostics.overall?.status === 'needs_attention' && <XCircle className="h-5 w-5 text-red-500" />}
-              <div>
-                <AlertTitle className="text-lg">{diagnostics.overall?.message}</AlertTitle>
-                <AlertDescription className="mt-1">
-                  {diagnostics.overall?.recommendation}
-                  {diagnostics.overall?.warnings > 0 && (
-                    <span className="block mt-2 text-sm">
-                      {diagnostics.overall.warnings} issue{diagnostics.overall.warnings > 1 ? 's' : ''} detected
-                    </span>
-                  )}
-                </AlertDescription>
-              </div>
-            </div>
-          </Alert>
-
-          {/* Section 1: Basic Diagnostics (Always Visible) */}
+        <CardContent className={cardPadding}>
           <div className="space-y-4">
-            <div 
-              className="flex items-center justify-between cursor-pointer"
-              onClick={() => toggleSection('basic')}
-            >
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Basic Diagnostics
-                <Badge variant="outline" className="ml-2">Always Visible</Badge>
-              </h3>
-              <Button variant="ghost" size="sm">
-                {expandedSections.basic ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              </Button>
+            {/* Overall Assessment */}
+            <Alert variant="default" className={`border-l-4 ${
+              diagnostics.overall?.status === 'good' ? 'border-green-500 bg-green-50 dark:bg-green-950/20' :
+              diagnostics.overall?.status === 'warning' ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20' :
+              'border-red-500 bg-red-50 dark:bg-red-950/20'
+            } ${compact ? 'py-1.5 px-2.5' : 'py-3 px-4'}`}>
+              <div className="flex items-start gap-2">
+                {diagnostics.overall?.status === 'good' && <CheckCircle className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} text-green-500 flex-shrink-0 mt-0.5`} />}
+                {diagnostics.overall?.status === 'warning' && <AlertTriangle className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} text-yellow-500 flex-shrink-0 mt-0.5`} />}
+                {diagnostics.overall?.status === 'needs_attention' && <XCircle className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} text-red-500 flex-shrink-0 mt-0.5`} />}
+                <div className="min-w-0">
+                  <AlertTitle className={`${compact ? 'text-sm' : 'text-lg'} break-words`}>
+                    {diagnostics.overall?.message}
+                  </AlertTitle>
+                  <AlertDescription className={`${compact ? 'text-[10px]' : 'text-sm'} mt-0.5 break-words`}>
+                    {diagnostics.overall?.recommendation}
+                    {diagnostics.overall?.warnings > 0 && (
+                      <span className="block mt-0.5">
+                        {diagnostics.overall.warnings} issue{diagnostics.overall.warnings > 1 ? 's' : ''} detected
+                      </span>
+                    )}
+                  </AlertDescription>
+                </div>
+              </div>
+            </Alert>
+
+            {/* Section 1: Basic Diagnostics */}
+            <div className="space-y-2">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('basic')}
+              >
+                <h3 className={`${compact ? 'text-sm' : 'text-lg'} font-semibold flex items-center gap-2`}>
+                  <FileText className={`${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} />
+                  Basic Diagnostics
+                  <Badge variant="outline" className={`${compact ? 'text-[8px] px-1.5' : 'text-xs'}`}>Always Visible</Badge>
+                </h3>
+                <Button variant="ghost" size="sm" className={compact ? 'h-6 w-6 p-0' : ''}>
+                  {expandedSections.basic ? <Eye className={`${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} /> : <EyeOff className={`${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} />}
+                </Button>
+              </div>
+              
+              {expandedSections.basic && (
+                <div className="grid grid-cols-1 gap-2">
+                  {diagnostics.sampleSize && renderDiagnosticCard(
+                    'Sample Size',
+                    `n = ${diagnostics.sampleSize.n}`,
+                    diagnostics.sampleSize.status,
+                    diagnostics.sampleSize.message,
+                    diagnostics.sampleSize.recommendation
+                  )}
+                  
+                  {diagnostics.rSquared && renderDiagnosticCard(
+                    'R-Squared',
+                    diagnostics.rSquared.value,
+                    diagnostics.rSquared.status,
+                    diagnostics.rSquared.message,
+                    diagnostics.rSquared.recommendation
+                  )}
+                  
+                  {diagnostics.slopeSignificance && renderDiagnosticCard(
+                    'Slope Significance',
+                    `t = ${diagnostics.slopeSignificance.tStatistic}`,
+                    diagnostics.slopeSignificance.status,
+                    diagnostics.slopeSignificance.message,
+                    diagnostics.slopeSignificance.recommendation
+                  )}
+                </div>
+              )}
             </div>
-            
-            {expandedSections.basic && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Sample Size */}
-                {diagnostics.sampleSize && renderDiagnosticCard(
-                  'Sample Size',
-                  `n = ${diagnostics.sampleSize.n}`,
-                  diagnostics.sampleSize.status,
-                  diagnostics.sampleSize.message,
-                  diagnostics.sampleSize.recommendation
-                )}
-                
-                {/* R² */}
-                {diagnostics.rSquared && renderDiagnosticCard(
-                  'R-Squared',
-                  diagnostics.rSquared.value,
-                  diagnostics.rSquared.status,
-                  diagnostics.rSquared.message,
-                  diagnostics.rSquared.recommendation
-                )}
-                
-                {/* Slope Significance */}
-                {diagnostics.slopeSignificance && renderDiagnosticCard(
-                  'Slope Significance',
-                  `t = ${diagnostics.slopeSignificance.tStatistic}`,
-                  diagnostics.slopeSignificance.status,
-                  diagnostics.slopeSignificance.message,
-                  diagnostics.slopeSignificance.recommendation
-                )}
-              </div>
-            )}
-          </div>
 
-          {/* Section 2: Heteroskedasticity */}
-          <div className="border-t pt-4">
-            {renderSectionToggle('Heteroskedasticity Tests', 'heteroskedasticity', <TrendingUp className="h-4 w-4" />)}
-            {expandedSections.heteroskedasticity && diagnostics.heteroskedasticity && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                {renderDiagnosticCard(
-                  'Breusch-Pagan Test',
-                  `F = ${diagnostics.heteroskedasticity.fStatistic}`,
-                  diagnostics.heteroskedasticity.status,
-                  diagnostics.heteroskedasticity.message,
-                  diagnostics.heteroskedasticity.recommendation
-                )}
-                <Card className="p-4">
-                  <p className="text-sm font-medium text-gray-500">Auxiliary R²</p>
-                  <p className="text-2xl font-bold">{formatNumber(diagnostics.heteroskedasticity.rSquared, 3)}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    R² from regressing squared residuals on x
-                  </p>
-                </Card>
-              </div>
-            )}
-          </div>
+            {/* Section 2: Heteroskedasticity */}
+            <div className="border-t pt-3">
+              {renderSectionToggle('Heteroskedasticity Tests', 'heteroskedasticity', <TrendingUp className="h-3.5 w-3.5" />)}
+              {expandedSections.heteroskedasticity && (
+                <div className="mt-2">
+                  {diagnostics.heteroskedasticity ? (
+                    <div className="grid grid-cols-1 gap-2">
+                      {renderDiagnosticCard(
+                        'Breusch-Pagan Test',
+                        `F = ${diagnostics.heteroskedasticity.fStatistic}`,
+                        diagnostics.heteroskedasticity.status,
+                        diagnostics.heteroskedasticity.message,
+                        diagnostics.heteroskedasticity.recommendation
+                      )}
+                      <Card className={`${compact ? 'p-2.5' : 'p-4'}`}>
+                        <p className={`${compact ? 'text-[10px]' : 'text-sm'} font-medium text-gray-500`}>Auxiliary R²</p>
+                        <p className={`${compact ? 'text-base' : 'text-2xl'} font-bold`}>
+                          {formatNumber(diagnostics.heteroskedasticity.rSquared, 3)}
+                        </p>
+                        <p className={`${compact ? 'text-[8px]' : 'text-xs'} text-gray-400 mt-0.5`}>
+                          R² from regressing squared residuals on x
+                        </p>
+                      </Card>
+                    </div>
+                  ) : (
+                    <Alert className="py-1.5 px-2.5">
+                      <Info className="h-3.5 w-3.5" />
+                      <AlertDescription className="text-xs">
+                        Need at least 6 data points for heteroskedasticity test. 
+                        Current sample: {dataPoints.length} observations.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              )}
+            </div>
 
-          {/* Section 3: Residual Analysis */}
-          <div className="border-t pt-4">
-            {renderSectionToggle('Residual Analysis', 'residuals', <Sigma className="h-4 w-4" />)}
-            {expandedSections.residuals && diagnostics.residuals && (
-              <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Card className="p-4">
-                    <p className="text-sm font-medium text-gray-500">Standard Error (Se)</p>
-                    <p className="text-2xl font-bold">{formatNumber(diagnostics.residuals.se, 2)}</p>
-                  </Card>
-                  <Card className="p-4">
-                    <p className="text-sm font-medium text-gray-500">Max Residual</p>
-                    <p className="text-2xl font-bold">{formatNumber(diagnostics.residuals.maxResidual, 2)}</p>
-                  </Card>
-                  <Card className="p-4">
-                    <p className="text-sm font-medium text-gray-500">SSE</p>
-                    <p className="text-2xl font-bold">{formatNumber(diagnostics.residuals.sse, 2)}</p>
+            {/* Section 3: Residual Analysis */}
+            <div className="border-t pt-3">
+              {renderSectionToggle('Residual Analysis', 'residuals', <Sigma className="h-3.5 w-3.5" />)}
+              {expandedSections.residuals && diagnostics.residuals && (
+                <div className="mt-2 space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Card className={`${compact ? 'p-2' : 'p-3'}`}>
+                      <p className={`${compact ? 'text-[8px]' : 'text-xs'} font-medium text-gray-500 truncate`}>Std. Error (Se)</p>
+                      <p className={`${compact ? 'text-sm' : 'text-lg'} font-bold truncate`}>
+                        {formatNumberCompact(diagnostics.residuals.se, 2)}
+                      </p>
+                    </Card>
+                    <Card className={`${compact ? 'p-2' : 'p-3'}`}>
+                      <p className={`${compact ? 'text-[8px]' : 'text-xs'} font-medium text-gray-500 truncate`}>Max Residual</p>
+                      <p className={`${compact ? 'text-sm' : 'text-lg'} font-bold truncate`}>
+                        {formatNumberCompact(diagnostics.residuals.maxResidual, 2)}
+                      </p>
+                    </Card>
+                    <Card className={`${compact ? 'p-2' : 'p-3'}`}>
+                      <p className={`${compact ? 'text-[8px]' : 'text-xs'} font-medium text-gray-500 truncate`}>SSE</p>
+                      <p className={`${compact ? 'text-sm' : 'text-lg'} font-bold truncate`}>
+                        {formatNumberCompact(diagnostics.residuals.sse, 2)}
+                      </p>
+                    </Card>
+                  </div>
+                  
+                  {/* Residuals vs Fitted Plot - FIXED */}
+                  <Card className={`${compact ? 'p-2' : 'p-4'}`}>
+                    <p className={`${compact ? 'text-[10px]' : 'text-sm'} font-medium text-gray-500 mb-1`}>Residuals vs Fitted Values</p>
+                    <div className={`${compact ? 'h-40' : 'h-64'} w-full`}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={diagnostics.residuals.residualPlotData}>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <XAxis 
+                            dataKey="fitted" 
+                            label={{ value: 'Fitted Values', position: 'bottom', fontSize: compact ? 9 : 11 }}
+                            tick={{ fontSize: compact ? 8 : 11 }}
+                            domain={['auto', 'auto']}
+                          />
+                          <YAxis 
+                            label={{ value: 'Residuals', angle: -90, position: 'left', fontSize: compact ? 9 : 11 }}
+                            tick={{ fontSize: compact ? 8 : 11 }}
+                          />
+                          <Tooltip 
+                            formatter={(value) => formatNumber(value, 2)}
+                            labelFormatter={(label) => `Fitted: ${formatNumber(label, 2)}`}
+                          />
+                          <ReferenceLine y={0} stroke="red" strokeDasharray="3 3" />
+                          <Scatter 
+                            name="Residuals" 
+                            dataKey="residual" 
+                            fill="#8884d8" 
+                            shape="circle"
+                          />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
                   </Card>
                 </div>
-                
-                {/* Residuals vs Fitted Plot */}
-                <Card className="p-4">
-                  <p className="text-sm font-medium text-gray-500 mb-2">Residuals vs Fitted Values</p>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={dataPoints.map((p, i) => ({
-                        fitted: regressionResults.intercept + regressionResults.slope * p.x,
-                        residual: diagnostics.residuals.raw[i]?.residual || 0
-                      }))}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="fitted" label={{ value: 'Fitted Values', position: 'bottom' }} />
-                        <YAxis label={{ value: 'Residuals', angle: -90, position: 'left' }} />
-                        <Tooltip />
-                        <Scatter dataKey="residual" fill="#8884d8" />
-                        <Line 
-                          data={[{ fitted: -100, residual: 0 }, { fitted: 10000, residual: 0 }]} 
-                          dataKey="residual" 
-                          stroke="red" 
-                          dot={false} 
-                          strokeDasharray="3 3"
-                        />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                </Card>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* Section 4: Outliers */}
-          <div className="border-t pt-4">
-            {renderSectionToggle('Outlier Detection', 'outliers', <BarChartIcon className="h-4 w-4" />)}
-            {expandedSections.outliers && diagnostics.outliers && (
-              <div className="mt-4 space-y-4">
-                {renderDiagnosticCard(
-                  'Outlier Status',
-                  diagnostics.outliers.count,
-                  diagnostics.outliers.status,
-                  diagnostics.outliers.message,
-                  diagnostics.outliers.recommendation
-                )}
-                
-                {diagnostics.outliers.observations.length > 0 && (
-                  <div className="border rounded-lg overflow-auto max-h-48">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>X</TableHead>
-                          <TableHead>Actual Y</TableHead>
-                          <TableHead>Predicted Y</TableHead>
-                          <TableHead className="text-right">Standardized Residual</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {diagnostics.outliers.observations.map((r, i) => (
-                          <TableRow key={i} className="bg-red-50 dark:bg-red-900/20">
-                            <TableCell>{r.x}</TableCell>
-                            <TableCell>{formatNumber(r.actual, 2)}</TableCell>
-                            <TableCell>{formatNumber(r.predicted, 2)}</TableCell>
-                            <TableCell className="text-right font-bold text-red-600">
-                              {formatNumber(r.standardized, 2)}
-                            </TableCell>
+            {/* Section 4: Outliers */}
+            <div className="border-t pt-3">
+              {renderSectionToggle('Outlier Detection', 'outliers', <BarChartIcon className="h-3.5 w-3.5" />)}
+              {expandedSections.outliers && diagnostics.outliers && (
+                <div className="mt-2 space-y-2">
+                  {renderDiagnosticCard(
+                    'Outlier Status',
+                    diagnostics.outliers.count,
+                    diagnostics.outliers.status,
+                    diagnostics.outliers.message,
+                    diagnostics.outliers.recommendation
+                  )}
+                  
+                  {diagnostics.outliers.observations.length > 0 && (
+                    <div className="border rounded-lg overflow-auto max-h-36">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="text-xs">
+                            <TableHead className="py-1 px-2">X</TableHead>
+                            <TableHead className="py-1 px-2">Actual Y</TableHead>
+                            <TableHead className="py-1 px-2">Predicted</TableHead>
+                            <TableHead className="text-right py-1 px-2">Std. Residual</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                        </TableHeader>
+                        <TableBody>
+                          {diagnostics.outliers.observations.map((r, i) => (
+                            <TableRow key={i} className="bg-red-50 dark:bg-red-900/20 text-xs">
+                              <TableCell className="py-1 px-2">{r.x}</TableCell>
+                              <TableCell className="py-1 px-2">{formatNumber(r.actual, 2)}</TableCell>
+                              <TableCell className="py-1 px-2">{formatNumber(r.predicted, 2)}</TableCell>
+                              <TableCell className="text-right py-1 px-2 font-bold text-red-600">
+                                {formatNumber(r.standardized, 2)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
-          {/* Section 5: Specification Tests */}
-          <div className="border-t pt-4">
-            {renderSectionToggle('Model Specification', 'specification', <Info className="h-4 w-4" />)}
-            {expandedSections.specification && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                {diagnostics.autocorrelation && renderDiagnosticCard(
-                  'Autocorrelation (Durbin-Watson)',
-                  diagnostics.autocorrelation.statistic,
-                  diagnostics.autocorrelation.status,
-                  diagnostics.autocorrelation.message,
-                  diagnostics.autocorrelation.recommendation
-                )}
-                {diagnostics.normality && renderDiagnosticCard(
-                  'Normality Check',
-                  `Skew: ${formatNumber(diagnostics.normality.skewness, 2)} | Kurt: ${formatNumber(diagnostics.normality.kurtosis, 2)}`,
-                  diagnostics.normality.status,
-                  diagnostics.normality.message,
-                  diagnostics.normality.recommendation
-                )}
-                {diagnostics.specification && renderDiagnosticCard(
-                  'RESET Test (Simplified)',
-                  `Corr: ${formatNumber(diagnostics.specification.correlation, 3)}`,
-                  diagnostics.specification.status,
-                  diagnostics.specification.message,
-                  diagnostics.specification.recommendation
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Export/Download Button */}
-          <div className="border-t pt-4 flex justify-end gap-2">
-            <Button variant="outline" size="sm" className="gap-2">
-              <Download className="h-4 w-4" />
-              Export Report
-            </Button>
+            {/* Section 5: Specification Tests */}
+            <div className="border-t pt-3">
+              {renderSectionToggle('Model Specification', 'specification', <Info className="h-3.5 w-3.5" />)}
+              {expandedSections.specification && (
+                <div className="mt-2 grid grid-cols-1 gap-2">
+                  {diagnostics.autocorrelation && renderDiagnosticCard(
+                    'Autocorrelation (Durbin-Watson)',
+                    diagnostics.autocorrelation.statistic,
+                    diagnostics.autocorrelation.status,
+                    diagnostics.autocorrelation.message,
+                    diagnostics.autocorrelation.recommendation
+                  )}
+                  {diagnostics.normality && renderDiagnosticCard(
+                    'Normality Check',
+                    `Skew: ${formatNumber(diagnostics.normality.skewness, 2)} | Kurt: ${formatNumber(diagnostics.normality.kurtosis, 2)}`,
+                    diagnostics.normality.status,
+                    diagnostics.normality.message,
+                    diagnostics.normality.recommendation
+                  )}
+                  {diagnostics.specification && renderDiagnosticCard(
+                    'RESET Test (Simplified)',
+                    `Corr: ${formatNumber(diagnostics.specification.correlation, 3)}`,
+                    diagnostics.specification.status,
+                    diagnostics.specification.message,
+                    diagnostics.specification.recommendation
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
