@@ -1,27 +1,36 @@
-// // export default SimpleLinearRegression;
-// import React, { useState, useMemo } from 'react';
+// // ===== src/components/calculators/SimpleLinearRegression.jsx =====
+// // Unified Regression Calculator with Mode Switching
+
+// import React, { useState, useMemo, useRef } from 'react';
 // import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 // import { Input } from '@/components/ui/input';
 // import { Button } from '@/components/ui/button';
 // import { Label } from '@/components/ui/label';
+// import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 // import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // import { ComposedChart, Scatter, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-// import { BrainCircuit, Plus, X, ListOrdered, AlertTriangle, Info } from 'lucide-react';
+// import { 
+//   BrainCircuit, Plus, X, ListOrdered, AlertTriangle, Info, 
+//   Clock, Binary, Upload, Download
+// } from 'lucide-react';
 // import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 // import { Badge } from '@/components/ui/badge';
 // import { TooltipProvider, Tooltip as UITooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-// import EconometricsDiagnosis from './EconometricsDiagnosis';
 
+// // ===== Import Components =====
+// import EconometricsDiagnosis from './EconometricsDiagnosis';
+// import EndogeneityDiagnosis from './EndogeneityDiagnosis';
+// import TimeSeriesRegression from './TimeSeriesRegression';
+// import BinaryChoiceModel from './BinaryChoiceModel';
+
+// // ===== Utility Functions =====
 // const formatNumber = (num, decimals = 4) => {
-//   if (num === null || num === undefined || !isFinite(num)) {
-//     return "N/A";
-//   }
+//   if (num === null || num === undefined || !isFinite(num)) return "N/A";
 //   return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 // };
 
 // const getRSquaredBadge = (rSquared) => {
 //   if (rSquared === null || !isFinite(rSquared)) return null;
-  
 //   if (rSquared >= 0.8) {
 //     return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Strong Fit</Badge>;
 //   } else if (rSquared >= 0.6) {
@@ -49,26 +58,59 @@
 //           25: 2.787, 30: 2.750, 40: 2.704, 50: 2.678, 60: 2.660,
 //           80: 2.639, 100: 2.626, 120: 2.617, 200: 2.601, 500: 2.586 }
 //   };
-  
 //   const df = Math.min(Math.max(Math.round(degreesOfFreedom), 1), 500);
 //   const availableDfs = Object.keys(tTable[confidenceLevel]).map(Number);
 //   const closestDf = availableDfs.reduce((prev, curr) => 
 //     Math.abs(curr - df) < Math.abs(prev - df) ? curr : prev
 //   );
-  
 //   return tTable[confidenceLevel][closestDf];
 // };
 
+// // ===== Data Parser =====
+// const parseFileData = (text, fileType) => {
+//   const lines = text.split('\n').filter(line => line.trim() !== '');
+//   let headers = [];
+//   let rows = [];
+  
+//   if (fileType === 'csv' || fileType === 'text/csv') {
+//     const allRows = lines.map(line => line.split(',').map(cell => cell.trim()));
+//     headers = allRows[0] || [];
+//     rows = allRows.slice(1).filter(row => row.length >= 2);
+//   } else if (fileType === 'application/json') {
+//     try {
+//       const jsonData = JSON.parse(text);
+//       if (Array.isArray(jsonData)) {
+//         headers = Object.keys(jsonData[0] || {});
+//         rows = jsonData.map(item => headers.map(h => item[h]));
+//       }
+//     } catch (e) {
+//       throw new Error('Invalid JSON format');
+//     }
+//   } else {
+//     const allRows = lines.map(line => line.split(/\t|\s+/).filter(cell => cell.trim() !== ''));
+//     headers = allRows[0] || [];
+//     rows = allRows.slice(1).filter(row => row.length >= 2);
+//   }
+//   return { headers, rows };
+// };
+
+// // ===== Main Component =====
 // const SimpleLinearRegression = () => {
+//   // ===== State =====
+//   const [activeMode, setActiveMode] = useState('simple');
 //   const [dataPoints, setDataPoints] = useState([
 //     { x: 1, y: 2500 }, { x: 2, y: 2800 }, { x: 3, y: 3100 },
 //     { x: 4, y: 3500 }, { x: 5, y: 3300 }, { x: 6, y: 3800 },
 //   ]);
-//   const [forecastHorizon, setForecastHorizon] = useState(3);
 //   const [xLabel, setXLabel] = useState('Month');
 //   const [yLabel, setYLabel] = useState('Revenue');
+//   const [forecastHorizon, setForecastHorizon] = useState(3);
 //   const [confidenceLevel, setConfidenceLevel] = useState(95);
+//   const [fileUploadError, setFileUploadError] = useState(null);
+//   const [endogeneityStatus, setEndogeneityStatus] = useState(null);
+//   const fileInputRef = useRef(null);
 
+//   // ===== Simple Linear Regression Calculations =====
 //   const regressionResults = useMemo(() => {
 //     if (dataPoints.length < 2) {
 //       return { isValid: false };
@@ -100,10 +142,8 @@
 //     const degreesOfFreedom = n - 2;
 //     const standardErrorEstimate = Math.sqrt(sse / degreesOfFreedom);
 //     const standardErrorSlope = standardErrorEstimate / Math.sqrt(denominator);
-//     const standardErrorIntercept = standardErrorEstimate * Math.sqrt((1/n) + (Math.pow(xBar, 2) / denominator));
     
 //     const tStatisticSlope = slope / standardErrorSlope;
-//     const tStatisticIntercept = intercept / standardErrorIntercept;
     
 //     const tValue = getTValue(confidenceLevel, degreesOfFreedom);
     
@@ -111,6 +151,9 @@
 //       lower: slope - tValue * standardErrorSlope,
 //       upper: slope + tValue * standardErrorSlope
 //     };
+    
+//     // Standard error for intercept
+//     const standardErrorIntercept = standardErrorEstimate * Math.sqrt((1/n) + (Math.pow(xBar, 2) / denominator));
 //     const interceptCI = {
 //       lower: intercept - tValue * standardErrorIntercept,
 //       upper: intercept + tValue * standardErrorIntercept
@@ -133,7 +176,6 @@
 //         y: forecastY,
 //         lowerBound: forecastY - marginOfError,
 //         upperBound: forecastY + marginOfError,
-//         standardError: sePrediction,
 //         marginOfError: marginOfError
 //       });
 //     }
@@ -160,9 +202,7 @@
 //       sst,
 //       standardErrorEstimate,
 //       standardErrorSlope,
-//       standardErrorIntercept,
 //       tStatisticSlope,
-//       tStatisticIntercept,
 //       slopeCI,
 //       interceptCI,
 //       tValue,
@@ -174,6 +214,7 @@
 //     };
 //   }, [dataPoints, forecastHorizon, confidenceLevel]);
 
+//   // ===== Data Management =====
 //   const addDataPoint = () => {
 //     const lastX = dataPoints.length > 0 ? dataPoints[dataPoints.length - 1].x : 0;
 //     setDataPoints([...dataPoints, { x: lastX + 1, y: 0 }]);
@@ -190,13 +231,390 @@
 //     newData[index][field] = Number(value);
 //     setDataPoints(newData);
 //   };
-  
+
 //   const autoIndexX = () => {
 //     setDataPoints(dataPoints.map((p, i) => ({ ...p, x: i + 1 })));
 //   };
 
+//   // ===== File Upload =====
+//   const handleFileUpload = (event) => {
+//     const file = event.target.files[0];
+//     if (!file) return;
+
+//     setFileUploadError(null);
+//     const reader = new FileReader();
+
+//     reader.onload = (e) => {
+//       try {
+//         const text = e.target.result;
+//         const { headers, rows } = parseFileData(text, file.type);
+
+//         if (rows.length === 0) {
+//           setFileUploadError('No data rows found in the file.');
+//           return;
+//         }
+
+//         setXLabel(headers[0] || 'X');
+//         setYLabel(headers[1] || 'Y');
+
+//         const newData = rows.map(row => ({
+//           x: parseFloat(row[0]),
+//           y: parseFloat(row[1])
+//         })).filter(d => !isNaN(d.x) && !isNaN(d.y));
+
+//         if (newData.length < 2) {
+//           setFileUploadError('Need at least 2 valid numeric data points.');
+//           return;
+//         }
+
+//         setDataPoints(newData);
+//         setFileUploadError(null);
+//       } catch (err) {
+//         setFileUploadError(`Error parsing file: ${err.message}`);
+//       }
+//     };
+
+//     reader.readAsText(file);
+//     event.target.value = '';
+//   };
+
+//   const triggerFileUpload = () => {
+//     fileInputRef.current?.click();
+//   };
+
+//   const exportData = () => {
+//     const headers = ['x', 'y'];
+//     const rows = dataPoints.map(p => [p.x, p.y]);
+//     const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+    
+//     const blob = new Blob([csvContent], { type: 'text/csv' });
+//     const url = URL.createObjectURL(blob);
+//     const a = document.createElement('a');
+//     a.href = url;
+//     a.download = 'regression_data.csv';
+//     a.click();
+//     URL.revokeObjectURL(url);
+//   };
+
+//   // ===== Load Sample Data =====
+//   const loadSampleData = () => {
+//     if (activeMode === 'simple') {
+//       setDataPoints([
+//         { x: 1, y: 2500 }, { x: 2, y: 2800 }, { x: 3, y: 3100 },
+//         { x: 4, y: 3500 }, { x: 5, y: 3300 }, { x: 6, y: 3800 },
+//       ]);
+//       setXLabel('Month');
+//       setYLabel('Revenue');
+//     } else if (activeMode === 'timeseries') {
+//       setDataPoints([
+//         { x: 2001, y: 70539.4 }, { x: 2002, y: 73480.5 },
+//         { x: 2003, y: 74775.4 }, { x: 2004, y: 78570.2 },
+//         { x: 2005, y: 81778.2 }, { x: 2006, y: 87264.6 },
+//       ]);
+//       setXLabel('Year');
+//       setYLabel('Consumption');
+//     } else if (activeMode === 'binary') {
+//       setDataPoints([
+//         { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 1 },
+//         { x: 4, y: 0 }, { x: 5, y: 1 }, { x: 6, y: 1 },
+//         { x: 7, y: 0 }, { x: 8, y: 1 }, { x: 9, y: 1 },
+//         { x: 10, y: 1 },
+//       ]);
+//       setXLabel('Education (Years)');
+//       setYLabel('Employed (0/1)');
+//     }
+//   };
+
 //   const combinedChartData = [...dataPoints, ...(regressionResults.forecasts || [])];
 
+//   // ===== Render Simple Linear Results =====
+//   const renderSimpleResults = () => (
+//     <>
+//       {/* Results Cards */}
+//       <div className="grid grid-cols-2 gap-3">
+//         <Card className="p-3">
+//           <p className="text-xs font-medium text-gray-500">Slope (b)</p>
+//           <p className="text-lg font-bold">{formatNumber(regressionResults.slope)}</p>
+//           <p className="text-[10px] text-gray-400 mt-0.5">
+//             {confidenceLevel}% CI: [{formatNumber(regressionResults.slopeCI.lower, 2)}, {formatNumber(regressionResults.slopeCI.upper, 2)}]
+//           </p>
+//         </Card>
+//         <Card className="p-3">
+//           <p className="text-xs font-medium text-gray-500">Intercept (a)</p>
+//           <p className="text-lg font-bold">{formatNumber(regressionResults.intercept)}</p>
+//           <p className="text-[10px] text-gray-400 mt-0.5">
+//             {confidenceLevel}% CI: [{formatNumber(regressionResults.interceptCI.lower, 2)}, {formatNumber(regressionResults.interceptCI.upper, 2)}]
+//           </p>
+//         </Card>
+//       </div>
+      
+//       {/* Stats Row */}
+//       <div className="grid grid-cols-3 gap-3">
+//         <Card className="p-2.5">
+//           <p className="text-[10px] font-medium text-gray-500">R-Squared</p>
+//           <p className="text-base font-bold">{formatNumber(regressionResults.rSquared, 3)}</p>
+//           {getRSquaredBadge(regressionResults.rSquared)}
+//         </Card>
+//         <Card className="p-2.5">
+//           <p className="text-[10px] font-medium text-gray-500">Std. Error (Se)</p>
+//           <p className="text-base font-bold">{formatNumber(regressionResults.standardErrorEstimate, 2)}</p>
+//         </Card>
+//         <Card className="p-2.5">
+//           <p className="text-[10px] font-medium text-gray-500">Observations</p>
+//           <p className="text-base font-bold">{regressionResults.n}</p>
+//           <p className="text-[10px] text-gray-400">df = {regressionResults.degreesOfFreedom}</p>
+//         </Card>
+//       </div>
+      
+//       {/* Equation Card */}
+//       <Card className="p-3 text-center">
+//         <p className="text-xs font-medium text-gray-500">Regression Equation</p>
+//         <p className="text-base font-mono font-semibold">{regressionResults.equation}</p>
+//         <p className="text-[10px] text-gray-400 mt-0.5">
+//           t-stat: {formatNumber(regressionResults.tStatisticSlope, 3)} | 
+//           t-critical ({confidenceLevel}%): {formatNumber(regressionResults.tValue, 3)}
+//         </p>
+//       </Card>
+
+//       {/* Chart */}
+//       <div className="h-64 w-full">
+//         <ResponsiveContainer width="100%" height="100%">
+//           <ComposedChart data={combinedChartData}>
+//             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+//             <XAxis type="number" dataKey="x" name={xLabel} domain={['dataMin', 'dataMax']} tick={{ fontSize: 11 }} />
+//             <YAxis type="number" dataKey="y" name={yLabel} domain={['auto', 'auto']} tickFormatter={(v) => v.toLocaleString()} tick={{ fontSize: 11 }} />
+//             <Tooltip 
+//               cursor={{ strokeDasharray: '3 3' }}
+//               formatter={(value, name, props) => {
+//                 if (name === 'Forecast' && props.payload.upperBound) {
+//                   return [
+//                     `${formatNumber(value, 2)} (${formatNumber(props.payload.lowerBound, 2)} - ${formatNumber(props.payload.upperBound, 2)})`,
+//                     name
+//                   ];
+//                 }
+//                 return [formatNumber(value, 2), name];
+//               }}
+//             />
+//             <Legend wrapperStyle={{ fontSize: '11px' }} />
+//             <Scatter name="Data" dataKey="y" fill="#8884d8" data={dataPoints} />
+//             <Line name="Forecast" dataKey="y" stroke="#82ca9d" strokeWidth={2} dot={{ stroke: '#82ca9d', strokeWidth: 2 }} data={regressionResults.forecasts}/>
+//             <Line name="Trend" dataKey="y" stroke="red" dot={false} strokeWidth={1.5} data={regressionResults.lineData} />
+//           </ComposedChart>
+//         </ResponsiveContainer>
+//       </div>
+   
+//       {/* Forecast Values */}
+//       {regressionResults.forecasts.length > 0 && (
+//         <div className="space-y-2">
+//           <Alert variant="default" className="border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20 py-2">
+//             <AlertTriangle className="h-3 w-3 !text-yellow-600" />
+//             <AlertDescription className="text-xs">
+//               Remember: This is a prediction, not a guarantee. Use this as a planning guide.
+//             </AlertDescription>
+//           </Alert>
+          
+//           <h3 className="font-semibold text-sm pt-1">Forecasted Values</h3>
+          
+//           <div className="border rounded-lg max-h-48 overflow-auto">
+//             <Table>
+//               <TableHeader>
+//                 <TableRow className="text-xs">
+//                   <TableHead className="py-1.5">{xLabel}</TableHead>
+//                   <TableHead className="text-right py-1.5">Forecasted {yLabel}</TableHead>
+//                   <TableHead className="text-right py-1.5">{confidenceLevel}% CI</TableHead>
+//                   <TableHead className="text-right py-1.5">Margin of Error</TableHead>
+//                 </TableRow>
+//               </TableHeader>
+//               <TableBody>
+//                 {regressionResults.forecasts.map(f => (
+//                   <TableRow key={f.x} className="text-xs">
+//                     <TableCell className="py-1.5 font-medium">{formatNumber(f.x, 0)}</TableCell>
+//                     <TableCell className="text-right font-mono py-1.5">{formatNumber(f.y, 2)}</TableCell>
+//                     <TableCell className="text-right font-mono text-[10px] py-1.5">
+//                       {formatNumber(f.lowerBound, 2)} — {formatNumber(f.upperBound, 2)}
+//                     </TableCell>
+//                     <TableCell className="text-right font-mono text-[10px] py-1.5">
+//                       ±{formatNumber(f.marginOfError, 2)}
+//                     </TableCell>
+//                   </TableRow>
+//                 ))}
+//               </TableBody>
+//             </Table>
+//           </div>
+        
+//           {/* Sample Size Warning */}
+//           {regressionResults.n < 10 && (
+//             <Alert variant="default" className="border-blue-300 bg-blue-50 dark:bg-blue-950/20 py-2">
+//               <Info className="h-3 w-3 !text-blue-600" />
+//               <AlertDescription className="text-xs">
+//                 <span className="font-medium">Limited Data Warning:</span> With only {regressionResults.n} data points, confidence intervals are wide. 
+//                 Consider collecting more data (ideally 10+ points).
+//               </AlertDescription>
+//             </Alert>
+//           )}
+//         </div>
+//       )}
+//     </>
+//   );
+
+//   // ===== Render Shared Data Input =====
+//   const renderDataInput = () => (
+//     <div className="space-y-4">
+//       {/* X and Y Variable Names */}
+//       <div className="grid grid-cols-2 gap-3">
+//         <div className="space-y-1.5">
+//           <Label className="text-xs font-medium">X-Variable Name</Label>
+//           <Input 
+//             value={xLabel} 
+//             onChange={(e) => setXLabel(e.target.value)} 
+//             placeholder="e.g., Time Period"
+//             className="h-8 text-sm"
+//           />
+//         </div>
+//         <div className="space-y-1.5">
+//           <Label className="text-xs font-medium">Y-Variable Name</Label>
+//           <Input 
+//             value={yLabel} 
+//             onChange={(e) => setYLabel(e.target.value)} 
+//             placeholder="e.g., Sales"
+//             className="h-8 text-sm"
+//           />
+//         </div>
+//       </div>
+
+//       {/* Data Points */}
+//       <div className="space-y-2">
+//         <div className="flex items-center justify-between flex-wrap gap-2">
+//           <div className="flex items-center gap-2">
+//             <Label className="flex items-center gap-1 text-xs font-medium">
+//               Data Points (x, y) <Info className="h-3 w-3" />
+//             </Label>
+//             <Badge variant="outline" className="text-[10px]">
+//               {dataPoints.length} rows
+//             </Badge>
+//           </div>
+//           <div className="flex flex-wrap gap-1.5">
+//             <input
+//               ref={fileInputRef}
+//               type="file"
+//               accept=".csv,.json,.txt"
+//               onChange={handleFileUpload}
+//               className="hidden"
+//             />
+//             <Button 
+//               onClick={triggerFileUpload} 
+//               variant="outline" 
+//               size="sm" 
+//               className="h-7 text-xs gap-1 px-2"
+//             >
+//               <Upload className="h-3 w-3"/> Upload
+//             </Button>
+//             <Button 
+//               onClick={exportData} 
+//               variant="outline" 
+//               size="sm" 
+//               className="h-7 text-xs gap-1 px-2"
+//               disabled={dataPoints.length === 0}
+//             >
+//               <Download className="h-3 w-3"/> Export
+//             </Button>
+//             <Button 
+//               onClick={autoIndexX} 
+//               variant="outline" 
+//               size="sm" 
+//               className="h-7 text-xs gap-1 px-2"
+//             >
+//               <ListOrdered className="h-3 w-3"/> Auto-Index
+//             </Button>
+//             <Button 
+//               onClick={addDataPoint} 
+//               variant="outline" 
+//               size="sm" 
+//               className="h-7 text-xs gap-1 px-2"
+//             >
+//               <Plus className="h-3 w-3"/> Add
+//             </Button>
+//           </div>
+//         </div>
+        
+//         {fileUploadError && (
+//           <Alert variant="destructive" className="py-1.5 px-2.5">
+//             <AlertTriangle className="h-3 w-3" />
+//             <AlertDescription className="text-xs">{fileUploadError}</AlertDescription>
+//           </Alert>
+//         )}
+        
+//         <div className="space-y-1.5 max-h-48 overflow-y-auto border rounded-lg p-1">
+//           {dataPoints.map((p, index) => (
+//             <div key={index} className="flex items-center gap-2">
+//               <Input 
+//                 type="number" 
+//                 value={p.x} 
+//                 onChange={(e) => updateDataPoint(index, 'x', e.target.value)} 
+//                 className="font-mono h-7 text-sm w-16" 
+//               />
+//               <Input 
+//                 type="number" 
+//                 value={p.y} 
+//                 onChange={(e) => updateDataPoint(index, 'y', e.target.value)} 
+//                 className="font-mono h-7 text-sm flex-1" 
+//               />
+//               <Button 
+//                 variant="ghost" 
+//                 size="icon" 
+//                 onClick={() => removeDataPoint(index)} 
+//                 className="h-6 w-6 text-red-500 hover:text-red-700"
+//                 disabled={dataPoints.length <= 2}
+//               >
+//                 <X className="h-3 w-3" />
+//               </Button>
+//             </div>
+//           ))}
+//         </div>
+        
+//         <div className="flex gap-2">
+//           <Button 
+//             variant="ghost" 
+//             size="sm" 
+//             className="h-6 text-[10px] gap-1 px-2"
+//             onClick={loadSampleData}
+//           >
+//             Load Sample Data
+//           </Button>
+//         </div>
+//       </div>
+
+//       {/* Forecast Horizon & Confidence Level (only for Simple) */}
+//       {activeMode === 'simple' && (
+//         <div className="grid grid-cols-2 gap-3">
+//           <div className="space-y-1.5">
+//             <Label className="text-xs font-medium">Forecast Horizon</Label>
+//             <Input 
+//               type="number" 
+//               value={forecastHorizon} 
+//               onChange={e => setForecastHorizon(Math.max(0, Number(e.target.value)))} 
+//               placeholder="Periods"
+//               className="h-8 text-sm"
+//             />
+//           </div>
+//           <div className="space-y-1.5">
+//             <Label className="text-xs font-medium">Confidence Level</Label>
+//             <select 
+//               className="w-full h-8 text-sm border rounded-md bg-background px-2"
+//               value={confidenceLevel}
+//               onChange={(e) => setConfidenceLevel(Number(e.target.value))}
+//             >
+//               <option value="90">90%</option>
+//               <option value="95">95%</option>
+//               <option value="99">99%</option>
+//             </select>
+//           </div>
+//         </div>
+//       )}
+//     </div>
+//   );
+
+//   // ===== Main Render =====
 //   return (
 //     <TooltipProvider>
 //       <Card className="w-full">
@@ -206,345 +624,133 @@
 //               <BrainCircuit className="h-5 w-5 text-teal-600 dark:text-teal-400" />
 //             </div>
 //             <div>
-//               <CardTitle className="text-xl">Simple Linear Regression Forecaster</CardTitle>
+//               <CardTitle className="text-xl">Regression Analysis Suite</CardTitle>
 //               <p className="text-sm text-gray-500 dark:text-gray-400">
-//                 Model trends and forecast future values based on historical data
+//                 Switch between Simple Linear, Time Series, and Binary Choice models
 //               </p>
 //             </div>
 //           </div>
 //         </CardHeader>
         
 //         <CardContent className="space-y-6">
-//           {/* Main Grid: 40% Left / 60% Right */}
-//           <div className="grid lg:grid-cols-5 gap-6">
+//           {/* Mode Selection Tabs */}
+//           <Tabs value={activeMode} onValueChange={setActiveMode} className="w-full">
+//             <TabsList className="grid grid-cols-3 w-full max-w-md">
+//               <TabsTrigger value="simple" className="text-xs gap-1">
+//                 <BrainCircuit className="h-3 w-3" />
+//                 Simple
+//               </TabsTrigger>
+//               <TabsTrigger value="timeseries" className="text-xs gap-1">
+//                 <Clock className="h-3 w-3" />
+//                 Time Series
+//               </TabsTrigger>
+//               <TabsTrigger value="binary" className="text-xs gap-1">
+//                 <Binary className="h-3 w-3" />
+//                 Binary
+//               </TabsTrigger>
+//             </TabsList>
             
-//             {/* ===== LEFT COLUMN (2/5) ===== */}
-//             <div className="lg:col-span-2 space-y-6">
-//               {/* Inputs Section */}
-//               <div className="space-y-4">
-//                 {/* Row 1: X and Y Variable Names */}
-//                 <div className="grid grid-cols-2 gap-3">
-//                   <div className="space-y-1.5">
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <div>
-//                           <Label className="text-xs font-medium">X-Variable Name</Label>
-//                           <Input 
-//                             value={xLabel} 
-//                             onChange={(e) => setXLabel(e.target.value)} 
-//                             placeholder="e.g., Time Period"
-//                             className="h-8 text-sm"
-//                           />
-//                         </div>
-//                       </TooltipTrigger>
-//                       <TooltipContent>
-//                         <p>This is your time period (e.g., Month, Quarter, Year).</p>
-//                       </TooltipContent>
-//                     </UITooltip>
-//                   </div>
-//                   <div className="space-y-1.5">
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <div>
-//                           <Label className="text-xs font-medium">Y-Variable Name</Label>
-//                           <Input 
-//                             value={yLabel} 
-//                             onChange={(e) => setYLabel(e.target.value)} 
-//                             placeholder="e.g., Sales"
-//                             className="h-8 text-sm"
-//                           />
-//                         </div>
-//                       </TooltipTrigger>
-//                       <TooltipContent>
-//                         <p>This is the financial metric you want to forecast.</p>
-//                       </TooltipContent>
-//                     </UITooltip>
+//             {/* ===== Simple Linear Mode ===== */}
+//             <TabsContent value="simple" className="mt-4">
+//               <div className="grid lg:grid-cols-5 gap-6">
+//                 {/* Left Column */}
+//                 <div className="lg:col-span-2 space-y-6">
+//                   {renderDataInput()}
+                  
+//                   {/* Econometrics Diagnosis */}
+//                   <div className="mt-2">
+//                     <EconometricsDiagnosis 
+//                       dataPoints={dataPoints}
+//                       regressionResults={regressionResults}
+//                       modelType="simple"
+//                       dependentVariable={yLabel}
+//                       defaultExpanded={false}
+//                       compact={true}
+//                       endogeneityStatus={endogeneityStatus}
+//                       dataType="cross-sectional"
+//                     />
 //                   </div>
 //                 </div>
-
-//                 {/* Row 2: Data Points */}
-//                 <div className="space-y-2">
-//                   <div className="flex items-center justify-between">
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <Label className="flex items-center gap-1 text-xs font-medium">
-//                           Data Points (x, y) <Info className="h-3 w-3" />
-//                         </Label>
-//                       </TooltipTrigger>
-//                       <TooltipContent>
-//                         <p>Enter your historical data here. For accurate forecasts, you need at least 6-8 data points.</p>
-//                       </TooltipContent>
-//                     </UITooltip>
-//                     <div className="flex gap-1.5">
-//                       <Button onClick={autoIndexX} variant="outline" size="sm" className="h-7 text-xs gap-1 px-2">
-//                         <ListOrdered className="h-3 w-3"/> Auto-Index
-//                       </Button>
-//                       <Button onClick={addDataPoint} variant="outline" size="sm" className="h-7 text-xs gap-1 px-2">
-//                         <Plus className="h-3 w-3"/> Add
-//                       </Button>
-//                     </div>
-//                   </div>
-                  
-//                   <div className="space-y-1.5 max-h-48 overflow-y-auto">
-//                     {dataPoints.map((p, index) => (
-//                       <div key={index} className="flex items-center gap-2">
-//                         <Input 
-//                           type="number" 
-//                           value={p.x} 
-//                           onChange={(e) => updateDataPoint(index, 'x', e.target.value)} 
-//                           className="font-mono h-7 text-sm w-16" 
-//                         />
-//                         <Input 
-//                           type="number" 
-//                           value={p.y} 
-//                           onChange={(e) => updateDataPoint(index, 'y', e.target.value)} 
-//                           className="font-mono h-7 text-sm flex-1" 
-//                         />
-//                         <Button 
-//                           variant="ghost" 
-//                           size="icon" 
-//                           onClick={() => removeDataPoint(index)} 
-//                           className="h-6 w-6 text-red-500 hover:text-red-700"
-//                         >
-//                           <X className="h-3 w-3" />
-//                         </Button>
-//                       </div>
-//                     ))}
-//                   </div>
-//                 </div>
-
-//                 {/* Row 3: Forecast Horizon and Confidence Level */}
-//                 <div className="grid grid-cols-2 gap-3">
-//                   <div className="space-y-1.5">
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <div>
-//                           <Label className="text-xs font-medium">Forecast Horizon</Label>
-//                           <Input 
-//                             type="number" 
-//                             value={forecastHorizon} 
-//                             onChange={e => setForecastHorizon(Math.max(0, Number(e.target.value)))} 
-//                             placeholder="Periods"
-//                             className="h-8 text-sm"
-//                           />
-//                         </div>
-//                       </TooltipTrigger>
-//                       <TooltipContent>
-//                         <p>How many periods into the future do you want to predict?</p>
-//                       </TooltipContent>
-//                     </UITooltip>
-//                   </div>
-                  
-//                   <div className="space-y-1.5">
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <div>
-//                           <Label className="text-xs font-medium">Confidence Level</Label>
-//                           <select 
-//                             className="w-full h-8 text-sm border rounded-md bg-background px-2"
-//                             value={confidenceLevel}
-//                             onChange={(e) => setConfidenceLevel(Number(e.target.value))}
-//                           >
-//                             <option value="90">90%</option>
-//                             <option value="95">95%</option>
-//                             <option value="99">99%</option>
-//                           </select>
-//                         </div>
-//                       </TooltipTrigger>
-//                       <TooltipContent>
-//                         <p>Higher confidence = wider prediction intervals. 95% is standard.</p>
-//                       </TooltipContent>
-//                     </UITooltip>
-//                   </div>
-//                 </div>
-//               </div>
-
-//               {/* ===== ECONOMETRICS DIAGNOSTICS ===== */}
-//               <div className="mt-2">
-//                 <EconometricsDiagnosis 
-//                   dataPoints={dataPoints}
-//                   regressionResults={regressionResults}
-//                   modelType="simple"
-//                   dependentVariable={yLabel}
-//                   defaultExpanded={false}
-//                   compact={true}
-//                 />
-//               </div>
-//             </div>
-
-//             {/* ===== RIGHT COLUMN (3/5) ===== */}
-//             <div className="lg:col-span-3 space-y-4">
-//               {!regressionResults.isValid ? (
-//                 <Alert>
-//                   <AlertTitle>Not Enough Data</AlertTitle>
-//                   <AlertDescription>Please provide at least two valid data points to perform regression analysis.</AlertDescription>
-//                 </Alert>
-//               ) : (
-//                 <>
-//                   {/* Results Cards */}
-//                   <div className="grid grid-cols-2 gap-3">
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <Card className="p-3">
-//                           <p className="text-xs font-medium text-gray-500">Slope (b)</p>
-//                           <p className="text-lg font-bold">{formatNumber(regressionResults.slope)}</p>
-//                           <p className="text-[10px] text-gray-400 mt-0.5">
-//                             {confidenceLevel}% CI: [{formatNumber(regressionResults.slopeCI.lower, 2)}, {formatNumber(regressionResults.slopeCI.upper, 2)}]
-//                           </p>
-//                         </Card>
-//                       </TooltipTrigger>
-//                       <TooltipContent className="max-w-xs">
-//                         <p>The average change per period. Positive = growth, Negative = decline.</p>
-//                       </TooltipContent>
-//                     </UITooltip>
-                    
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <Card className="p-3">
-//                           <p className="text-xs font-medium text-gray-500">Intercept (a)</p>
-//                           <p className="text-lg font-bold">{formatNumber(regressionResults.intercept)}</p>
-//                           <p className="text-[10px] text-gray-400 mt-0.5">
-//                             {confidenceLevel}% CI: [{formatNumber(regressionResults.interceptCI.lower, 2)}, {formatNumber(regressionResults.interceptCI.upper, 2)}]
-//                           </p>
-//                         </Card>
-//                       </TooltipTrigger>
-//                       <TooltipContent className="max-w-xs">
-//                         <p>The estimated starting value of your metric.</p>
-//                       </TooltipContent>
-//                     </UITooltip>
-//                   </div>
-                  
-//                   {/* Stats Row */}
-//                   <div className="grid grid-cols-3 gap-3">
-//                     <Card className="p-2.5">
-//                       <p className="text-[10px] font-medium text-gray-500">R-Squared</p>
-//                       <p className="text-base font-bold">{formatNumber(regressionResults.rSquared, 3)}</p>
-//                       {getRSquaredBadge(regressionResults.rSquared)}
-//                     </Card>
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <Card className="p-2.5">
-//                           <p className="text-[10px] font-medium text-gray-500">Std. Error (Se)</p>
-//                           <p className="text-base font-bold">{formatNumber(regressionResults.standardErrorEstimate, 2)}</p>
-//                         </Card>
-//                       </TooltipTrigger>
-//                       <TooltipContent>
-//                         <p>The average deviation of actual values from the regression line.</p>
-//                       </TooltipContent>
-//                     </UITooltip>
-//                     <UITooltip>
-//                       <TooltipTrigger asChild>
-//                         <Card className="p-2.5">
-//                           <p className="text-[10px] font-medium text-gray-500">Observations</p>
-//                           <p className="text-base font-bold">{regressionResults.n}</p>
-//                           <p className="text-[10px] text-gray-400">df = {regressionResults.degreesOfFreedom}</p>
-//                         </Card>
-//                       </TooltipTrigger>
-//                       <TooltipContent>
-//                         <p>Degrees of freedom = n - 2. With {regressionResults.n} points, we have {regressionResults.degreesOfFreedom} degrees of freedom.</p>
-//                       </TooltipContent>
-//                     </UITooltip>
-//                   </div>
-                  
-//                   {/* Equation Card */}
-//                   <UITooltip>
-//                     <TooltipTrigger asChild>
-//                       <Card className="p-3 text-center">
-//                         <p className="text-xs font-medium text-gray-500">Regression Equation</p>
-//                         <p className="text-base font-mono font-semibold">{regressionResults.equation}</p>
-//                         <p className="text-[10px] text-gray-400 mt-0.5">
-//                           t-stat: {formatNumber(regressionResults.tStatisticSlope, 3)} | 
-//                           t-critical ({confidenceLevel}%): {formatNumber(regressionResults.tValue, 3)}
-//                         </p>
-//                       </Card>
-//                     </TooltipTrigger>
-//                     <TooltipContent>
-//                       <p>The formula used to make the forecast. Plug in x to calculate ŷ.</p>
-//                     </TooltipContent>
-//                   </UITooltip>
-
-//                   {/* Chart */}
-//                   <div className="h-64 w-full">
-//                     <ResponsiveContainer width="100%" height="100%">
-//                       <ComposedChart data={combinedChartData}>
-//                         <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-//                         <XAxis type="number" dataKey="x" name={xLabel} domain={['dataMin', 'dataMax']} tick={{ fontSize: 11 }} />
-//                         <YAxis type="number" dataKey="y" name={yLabel} domain={['auto', 'auto']} tickFormatter={(v) => v.toLocaleString()} tick={{ fontSize: 11 }} />
-//                         <Tooltip 
-//                           cursor={{ strokeDasharray: '3 3' }}
-//                           formatter={(value, name, props) => {
-//                             if (name === 'Forecast' && props.payload.upperBound) {
-//                               return [
-//                                 `${formatNumber(value, 2)} (${formatNumber(props.payload.lowerBound, 2)} - ${formatNumber(props.payload.upperBound, 2)})`,
-//                                 name
-//                               ];
-//                             }
-//                             return [formatNumber(value, 2), name];
-//                           }}
-//                         />
-//                         <Legend wrapperStyle={{ fontSize: '11px' }} />
-//                         <Scatter name="Data" dataKey="y" fill="#8884d8" data={dataPoints} />
-//                         <Line name="Forecast" dataKey="y" stroke="#82ca9d" strokeWidth={2} dot={{ stroke: '#82ca9d', strokeWidth: 2 }} data={regressionResults.forecasts}/>
-//                         <Line name="Trend" dataKey="y" stroke="red" dot={false} strokeWidth={1.5} data={regressionResults.lineData} />
-//                       </ComposedChart>
-//                     </ResponsiveContainer>
-//                   </div>
-               
-//                   {/* Forecast Values */}
-//                   {regressionResults.forecasts.length > 0 && (
-//                     <div className="space-y-2">
-//                       <Alert variant="default" className="border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20 py-2">
-//                         <AlertTriangle className="h-3 w-3 !text-yellow-600" />
-//                         <AlertDescription className="text-xs">
-//                           Remember: This is a prediction, not a guarantee. Use this as a planning guide.
-//                         </AlertDescription>
-//                       </Alert>
-                      
-//                       <h3 className="font-semibold text-sm pt-1">Forecasted Values</h3>
-                      
-//                       <div className="border rounded-lg max-h-48 overflow-auto">
-//                         <Table>
-//                           <TableHeader>
-//                             <TableRow className="text-xs">
-//                               <TableHead className="py-1.5">{xLabel}</TableHead>
-//                               <TableHead className="text-right py-1.5">Forecasted {yLabel}</TableHead>
-//                               <TableHead className="text-right py-1.5">{confidenceLevel}% CI</TableHead>
-//                               <TableHead className="text-right py-1.5">Margin of Error</TableHead>
-//                             </TableRow>
-//                           </TableHeader>
-//                           <TableBody>
-//                             {regressionResults.forecasts.map(f => (
-//                               <TableRow key={f.x} className="text-xs">
-//                                 <TableCell className="py-1.5 font-medium">{formatNumber(f.x, 0)}</TableCell>
-//                                 <TableCell className="text-right font-mono py-1.5">{formatNumber(f.y, 2)}</TableCell>
-//                                 <TableCell className="text-right font-mono text-[10px] py-1.5">
-//                                   {formatNumber(f.lowerBound, 2)} — {formatNumber(f.upperBound, 2)}
-//                                 </TableCell>
-//                                 <TableCell className="text-right font-mono text-[10px] py-1.5">
-//                                   ±{formatNumber(f.marginOfError, 2)}
-//                                 </TableCell>
-//                               </TableRow>
-//                             ))}
-//                           </TableBody>
-//                         </Table>
-//                       </div>
-                    
-//                       {/* Sample Size Warning */}
-//                       {regressionResults.n < 10 && (
-//                         <Alert variant="default" className="border-blue-300 bg-blue-50 dark:bg-blue-950/20 py-2">
-//                           <Info className="h-3 w-3 !text-blue-600" />
-//                           <AlertDescription className="text-xs">
-//                             <span className="font-medium">Limited Data Warning:</span> With only {regressionResults.n} data points, confidence intervals are wide. 
-//                             Consider collecting more data (ideally 10+ points).
-//                           </AlertDescription>
-//                         </Alert>
-//                       )}
-//                     </div>
+                
+//                 {/* Right Column */}
+//                 <div className="lg:col-span-3 space-y-4">
+//                   {regressionResults.isValid ? renderSimpleResults() : (
+//                     <Alert>
+//                       <AlertTitle>Not Enough Data</AlertTitle>
+//                       <AlertDescription>Please provide at least two valid data points.</AlertDescription>
+//                     </Alert>
 //                   )}
-//                 </>
-//               )}
-//             </div>
-//           </div>
+                  
+//                   {/* Endogeneity Diagnosis at bottom right */}
+//                   <div className="mt-4 pt-4 border-t">
+//                     <EndogeneityDiagnosis 
+//                       dataPoints={dataPoints}
+//                       regressionResults={regressionResults}
+//                       onEndogeneityStatusChange={setEndogeneityStatus}
+//                     />
+//                   </div>
+//                 </div>
+//               </div>
+//             </TabsContent>
+            
+//             {/* ===== Time Series Mode ===== */}
+//             <TabsContent value="timeseries" className="mt-4">
+//               <div className="grid lg:grid-cols-5 gap-6">
+//                 {/* Left Column */}
+//                 <div className="lg:col-span-2 space-y-6">
+//                   {renderDataInput()}
+//                 </div>
+                
+//                 {/* Right Column */}
+//                 <div className="lg:col-span-3">
+//                   <TimeSeriesRegression 
+//                     dataPoints={dataPoints}
+//                     setDataPoints={setDataPoints}
+//                     xLabel={xLabel}
+//                     yLabel={yLabel}
+//                   />
+                  
+//                   {/* Endogeneity Diagnosis at bottom right */}
+//                   <div className="mt-4 pt-4 border-t">
+//                     <EndogeneityDiagnosis 
+//                       dataPoints={dataPoints}
+//                       regressionResults={null}
+//                       onEndogeneityStatusChange={setEndogeneityStatus}
+//                     />
+//                   </div>
+//                 </div>
+//               </div>
+//             </TabsContent>
+            
+//             {/* ===== Binary Choice Mode ===== */}
+//             <TabsContent value="binary" className="mt-4">
+//               <div className="grid lg:grid-cols-5 gap-6">
+//                 {/* Left Column */}
+//                 <div className="lg:col-span-2 space-y-6">
+//                   {renderDataInput()}
+//                 </div>
+                
+//                 {/* Right Column */}
+//                 <div className="lg:col-span-3">
+//                   <BinaryChoiceModel 
+//                     dataPoints={dataPoints}
+//                     setDataPoints={setDataPoints}
+//                     xLabel={xLabel}
+//                     yLabel={yLabel}
+//                   />
+                  
+//                   {/* Endogeneity Diagnosis at bottom right */}
+//                   <div className="mt-4 pt-4 border-t">
+//                     <EndogeneityDiagnosis 
+//                       dataPoints={dataPoints}
+//                       regressionResults={null}
+//                       onEndogeneityStatusChange={setEndogeneityStatus}
+//                     />
+//                   </div>
+//                 </div>
+//               </div>
+//             </TabsContent>
+//           </Tabs>
 //         </CardContent>
 //       </Card>
 //     </TooltipProvider>
@@ -552,7 +758,6 @@
 // };
 
 // export default SimpleLinearRegression;
-
 // ===== src/components/calculators/SimpleLinearRegression.jsx =====
 // Unified Regression Calculator with Mode Switching
 
@@ -707,7 +912,6 @@ const SimpleLinearRegression = () => {
       upper: slope + tValue * standardErrorSlope
     };
     
-    // Standard error for intercept
     const standardErrorIntercept = standardErrorEstimate * Math.sqrt((1/n) + (Math.pow(xBar, 2) / denominator));
     const interceptCI = {
       lower: intercept - tValue * standardErrorIntercept,
@@ -861,22 +1065,9 @@ const SimpleLinearRegression = () => {
       setXLabel('Month');
       setYLabel('Revenue');
     } else if (activeMode === 'timeseries') {
-      setDataPoints([
-        { x: 2001, y: 70539.4 }, { x: 2002, y: 73480.5 },
-        { x: 2003, y: 74775.4 }, { x: 2004, y: 78570.2 },
-        { x: 2005, y: 81778.2 }, { x: 2006, y: 87264.6 },
-      ]);
-      setXLabel('Year');
-      setYLabel('Consumption');
+      // Time series handles its own sample data
     } else if (activeMode === 'binary') {
-      setDataPoints([
-        { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 1 },
-        { x: 4, y: 0 }, { x: 5, y: 1 }, { x: 6, y: 1 },
-        { x: 7, y: 0 }, { x: 8, y: 1 }, { x: 9, y: 1 },
-        { x: 10, y: 1 },
-      ]);
-      setXLabel('Education (Years)');
-      setYLabel('Employed (0/1)');
+      // Binary handles its own sample data
     }
   };
 
@@ -997,7 +1188,6 @@ const SimpleLinearRegression = () => {
             </Table>
           </div>
         
-          {/* Sample Size Warning */}
           {regressionResults.n < 10 && (
             <Alert variant="default" className="border-blue-300 bg-blue-50 dark:bg-blue-950/20 py-2">
               <Info className="h-3 w-3 !text-blue-600" />
@@ -1012,8 +1202,8 @@ const SimpleLinearRegression = () => {
     </>
   );
 
-  // ===== Render Shared Data Input =====
-  const renderDataInput = () => (
+  // ===== Render Simple Linear Inputs =====
+  const renderSimpleInputs = () => (
     <div className="space-y-4">
       {/* X and Y Variable Names */}
       <div className="grid grid-cols-2 gap-3">
@@ -1139,33 +1329,31 @@ const SimpleLinearRegression = () => {
         </div>
       </div>
 
-      {/* Forecast Horizon & Confidence Level (only for Simple) */}
-      {activeMode === 'simple' && (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Forecast Horizon</Label>
-            <Input 
-              type="number" 
-              value={forecastHorizon} 
-              onChange={e => setForecastHorizon(Math.max(0, Number(e.target.value)))} 
-              placeholder="Periods"
-              className="h-8 text-sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Confidence Level</Label>
-            <select 
-              className="w-full h-8 text-sm border rounded-md bg-background px-2"
-              value={confidenceLevel}
-              onChange={(e) => setConfidenceLevel(Number(e.target.value))}
-            >
-              <option value="90">90%</option>
-              <option value="95">95%</option>
-              <option value="99">99%</option>
-            </select>
-          </div>
+      {/* Forecast Horizon & Confidence Level */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium">Forecast Horizon</Label>
+          <Input 
+            type="number" 
+            value={forecastHorizon} 
+            onChange={e => setForecastHorizon(Math.max(0, Number(e.target.value)))} 
+            placeholder="Periods"
+            className="h-8 text-sm"
+          />
         </div>
-      )}
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium">Confidence Level</Label>
+          <select 
+            className="w-full h-8 text-sm border rounded-md bg-background px-2"
+            value={confidenceLevel}
+            onChange={(e) => setConfidenceLevel(Number(e.target.value))}
+          >
+            <option value="90">90%</option>
+            <option value="95">95%</option>
+            <option value="99">99%</option>
+          </select>
+        </div>
+      </div>
     </div>
   );
 
@@ -1210,7 +1398,7 @@ const SimpleLinearRegression = () => {
               <div className="grid lg:grid-cols-5 gap-6">
                 {/* Left Column */}
                 <div className="lg:col-span-2 space-y-6">
-                  {renderDataInput()}
+                  {renderSimpleInputs()}
                   
                   {/* Econometrics Diagnosis */}
                   <div className="mt-2">
@@ -1250,60 +1438,12 @@ const SimpleLinearRegression = () => {
             
             {/* ===== Time Series Mode ===== */}
             <TabsContent value="timeseries" className="mt-4">
-              <div className="grid lg:grid-cols-5 gap-6">
-                {/* Left Column */}
-                <div className="lg:col-span-2 space-y-6">
-                  {renderDataInput()}
-                </div>
-                
-                {/* Right Column */}
-                <div className="lg:col-span-3">
-                  <TimeSeriesRegression 
-                    dataPoints={dataPoints}
-                    setDataPoints={setDataPoints}
-                    xLabel={xLabel}
-                    yLabel={yLabel}
-                  />
-                  
-                  {/* Endogeneity Diagnosis at bottom right */}
-                  <div className="mt-4 pt-4 border-t">
-                    <EndogeneityDiagnosis 
-                      dataPoints={dataPoints}
-                      regressionResults={null}
-                      onEndogeneityStatusChange={setEndogeneityStatus}
-                    />
-                  </div>
-                </div>
-              </div>
+              <TimeSeriesRegression />
             </TabsContent>
             
             {/* ===== Binary Choice Mode ===== */}
             <TabsContent value="binary" className="mt-4">
-              <div className="grid lg:grid-cols-5 gap-6">
-                {/* Left Column */}
-                <div className="lg:col-span-2 space-y-6">
-                  {renderDataInput()}
-                </div>
-                
-                {/* Right Column */}
-                <div className="lg:col-span-3">
-                  <BinaryChoiceModel 
-                    dataPoints={dataPoints}
-                    setDataPoints={setDataPoints}
-                    xLabel={xLabel}
-                    yLabel={yLabel}
-                  />
-                  
-                  {/* Endogeneity Diagnosis at bottom right */}
-                  <div className="mt-4 pt-4 border-t">
-                    <EndogeneityDiagnosis 
-                      dataPoints={dataPoints}
-                      regressionResults={null}
-                      onEndogeneityStatusChange={setEndogeneityStatus}
-                    />
-                  </div>
-                </div>
-              </div>
+              <BinaryChoiceModel />
             </TabsContent>
           </Tabs>
         </CardContent>

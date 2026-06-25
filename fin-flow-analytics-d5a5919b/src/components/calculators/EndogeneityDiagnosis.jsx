@@ -333,7 +333,7 @@ const EndogeneityDiagnosis = ({
     if (!hasEndogeneity) {
       return {
         status: 'good',
-        message: 'No endogeneity sources identified. OLS estimation should be unbiased and consistent.',
+        message: 'No endogeneity sources identified. OLS/MLE estimation should be unbiased and consistent.',
         action: 'Proceed with OLS estimation',
         icon: <CheckCircle className="h-5 w-5 text-green-500" />
       };
@@ -456,7 +456,7 @@ const EndogeneityDiagnosis = ({
         
         {/* Helpful Notes */}
         <div className="text-xs text-gray-500 dark:text-gray-400 border-t pt-2">
-          <p className="font-medium">📚 From Your Econometrics Notes:</p>
+          <p className="font-medium">📚Econometrics Analysis:</p>
           <ul className="list-disc list-inside space-y-0.5 mt-1">
             <li>Endogeneity violates <strong>MLR.4: E(u|x) = 0</strong></li>
             <li>Consequences: OLS estimators become <strong>biased and inconsistent</strong></li>
