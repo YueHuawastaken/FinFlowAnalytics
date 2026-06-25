@@ -1,4 +1,5 @@
 // ===== src/components/calculators/TimeSeriesRegression.jsx =====
+// Enhanced with visible Advanced TS Diagnostics
 
 import React, { useState, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +21,11 @@ import {
   Clock,
   Upload,
   Download,
-  FileText
+  FileText,
+  Shield,
+  Zap,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { TooltipProvider, Tooltip as UITooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import EconometricsDiagnosis from './EconometricsDiagnosis';
@@ -31,6 +36,21 @@ import EndogeneityDiagnosis from './EndogeneityDiagnosis';
 const formatNumber = (num, decimals = 4) => {
   if (num === null || num === undefined || !isFinite(num)) return "N/A";
   return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+};
+
+// ===== ADF Critical Values =====
+const ADF_CRITICAL_VALUES = {
+  'no_constant': { '1%': -2.58, '5%': -1.95, '10%': -1.62 },
+  'constant': { '1%': -3.43, '5%': -2.86, '10%': -2.57 },
+  'constant_trend': { '1%': -3.96, '5%': -3.41, '10%': -3.12 }
+};
+
+// ===== Cointegration Critical Values (Engle-Granger) =====
+const COINTEGRATION_CRITICAL_VALUES = {
+  '10%': -3.04,
+  '5%': -3.34,
+  '2.5%': -3.59,
+  '1%': -3.90
 };
 
 // ===== Data Parser for Time Series =====
@@ -61,8 +81,232 @@ const parseTimeSeriesFile = (text, fileType) => {
   return { headers, rows };
 };
 
-// ===== Main Component =====
+// ===== ADF Unit Root Test =====
+const calculateADFTest = (data, modelType = 'constant', maxLags = null) => {
+  const y = data.map(p => p.y);
+  const n = y.length;
+  
+  if (n < 6) {
+    return { 
+      isValid: false, 
+      message: 'Need at least 6 observations for ADF test',
+      testStatistic: null,
+      criticalValues: ADF_CRITICAL_VALUES[modelType],
+      isStationary: null,
+      pValue: null
+    };
+  }
+  
+  // Compute first differences
+  const dy = [];
+  for (let i = 1; i < n; i++) {
+    dy.push(y[i] - y[i-1]);
+  }
+  
+  // Determine optimal lag using AIC (simplified)
+  const maxLagsUsed = maxLags || Math.min(Math.floor((n-1)/3), 4);
+  
+  // Simple ADF test without lags for demonstration
+  const y_lag = y.slice(0, n-1);
+  const y_diff = dy;
+  
+  const meanY_lag = y_lag.reduce((a, b) => a + b, 0) / y_lag.length;
+  const meanDiff = y_diff.reduce((a, b) => a + b, 0) / y_diff.length;
+  
+  // Simple OLS: Δyₜ = α + θyₜ₋₁ + eₜ
+  let numerator = 0;
+  let denominator = 0;
+  for (let i = 0; i < y_lag.length; i++) {
+    numerator += (y_lag[i] - meanY_lag) * (y_diff[i] - meanDiff);
+    denominator += (y_lag[i] - meanY_lag) ** 2;
+  }
+  
+  const theta = denominator === 0 ? 0 : numerator / denominator;
+  const alpha = meanDiff - theta * meanY_lag;
+  
+  // Residuals and standard error
+  let sse = 0;
+  for (let i = 0; i < y_lag.length; i++) {
+    const predicted = alpha + theta * y_lag[i];
+    sse += (y_diff[i] - predicted) ** 2;
+  }
+  const se = Math.sqrt(sse / (y_lag.length - 2));
+  const seTheta = se / Math.sqrt(denominator);
+  
+  const testStatistic = theta / seTheta;
+  
+  // Get critical values
+  const criticalValues = ADF_CRITICAL_VALUES[modelType] || ADF_CRITICAL_VALUES['constant'];
+  
+  // Determine if stationary (test statistic < critical value)
+  const isStationary = testStatistic < criticalValues['5%'];
+  
+  // Approximate p-value (simplified)
+  let pValue = null;
+  if (isStationary) {
+    pValue = testStatistic < criticalValues['1%'] ? '< 0.01' : 
+             testStatistic < criticalValues['5%'] ? '< 0.05' : '< 0.10';
+  } else {
+    pValue = '> 0.10';
+  }
+  
+  return {
+    isValid: true,
+    testStatistic: testStatistic,
+    criticalValues: criticalValues,
+    isStationary: isStationary,
+    pValue: pValue,
+    theta: theta,
+    alpha: alpha,
+    modelType: modelType,
+    n: y_lag.length
+  };
+};
 
+// ===== Cointegration Test (Engle-Granger) =====
+const calculateCointegrationTest = (data, results) => {
+  const n = data.length;
+  
+  if (n < 6) {
+    return {
+      isValid: false,
+      message: 'Need at least 6 observations for cointegration test',
+      testStatistic: null,
+      criticalValues: COINTEGRATION_CRITICAL_VALUES,
+      isCointegrated: null
+    };
+  }
+  
+  // Use residuals from the main regression
+  const residuals = results.residuals.map(r => r.residual);
+  
+  // ADF test on residuals
+  const y = residuals;
+  const dy = [];
+  for (let i = 1; i < y.length; i++) {
+    dy.push(y[i] - y[i-1]);
+  }
+  
+  const y_lag = y.slice(0, y.length - 1);
+  const y_diff = dy;
+  
+  const meanY_lag = y_lag.reduce((a, b) => a + b, 0) / y_lag.length;
+  const meanDiff = y_diff.reduce((a, b) => a + b, 0) / y_diff.length;
+  
+  let numerator = 0;
+  let denominator = 0;
+  for (let i = 0; i < y_lag.length; i++) {
+    numerator += (y_lag[i] - meanY_lag) * (y_diff[i] - meanDiff);
+    denominator += (y_lag[i] - meanY_lag) ** 2;
+  }
+  
+  const theta = denominator === 0 ? 0 : numerator / denominator;
+  
+  let sse = 0;
+  for (let i = 0; i < y_lag.length; i++) {
+    const predicted = theta * y_lag[i];
+    sse += (y_diff[i] - predicted) ** 2;
+  }
+  const se = Math.sqrt(sse / (y_lag.length - 1));
+  const seTheta = se / Math.sqrt(denominator);
+  
+  const testStatistic = theta / seTheta;
+  
+  // Use cointegration critical values (different from ADF!)
+  const criticalValues = COINTEGRATION_CRITICAL_VALUES;
+  const isCointegrated = testStatistic < criticalValues['5%'];
+  
+  return {
+    isValid: true,
+    testStatistic: testStatistic,
+    criticalValues: criticalValues,
+    isCointegrated: isCointegrated,
+    theta: theta,
+    n: y_lag.length
+  };
+};
+
+// ===== HAC Standard Errors (Newey-West) =====
+const calculateHACStandardErrors = (data, results) => {
+  const n = data.length;
+  const residuals = results.residuals.map(r => r.residual);
+  const xValues = data.map(p => p.x);
+  const meanX = xValues.reduce((a, b) => a + b, 0) / n;
+  
+  // Newey-West with lag = floor(4*(n/100)^(2/9))
+  const maxLag = Math.min(Math.floor(4 * Math.pow(n/100, 2/9)), n-1);
+  
+  // Compute weights
+  const weights = [];
+  for (let lag = 0; lag <= maxLag; lag++) {
+    weights.push(1 - lag / (maxLag + 1));
+  }
+  
+  // Compute S_0 (lag 0)
+  let S0 = 0;
+  for (let t = 0; t < n; t++) {
+    const xDev = xValues[t] - meanX;
+    S0 += (xDev * residuals[t]) ** 2;
+  }
+  
+  // Compute S_lag for each lag
+  let S = S0;
+  for (let lag = 1; lag <= maxLag; lag++) {
+    let sum = 0;
+    for (let t = lag; t < n; t++) {
+      const xDev_t = xValues[t] - meanX;
+      const xDev_t_lag = xValues[t - lag] - meanX;
+      sum += xDev_t * xDev_t_lag * residuals[t] * residuals[t - lag];
+    }
+    S += 2 * weights[lag] * sum;
+  }
+  
+  // Compute denominator
+  const denominator = xValues.reduce((acc, x) => acc + (x - meanX) ** 2, 0);
+  
+  // HAC variance
+  const hacVariance = S / (denominator ** 2);
+  const hacSe = Math.sqrt(hacVariance);
+  
+  // Compare with OLS standard error
+  const olsSe = results.seSlope;
+  
+  return {
+    hacSe: hacSe,
+    olsSe: olsSe,
+    ratio: hacSe / olsSe,
+    maxLag: maxLag,
+    isSignificantlyDifferent: Math.abs(hacSe / olsSe - 1) > 0.2
+  };
+};
+
+// ===== Spurious Regression Check =====
+const checkSpuriousRegression = (data, results, adfResult) => {
+  const n = data.length;
+  
+  // Check if both y and x are I(1)
+  const yStationary = adfResult?.isStationary;
+  
+  // Simple check: if R² is very high and residuals are non-stationary
+  const highR2 = results.rSquared > 0.8;
+  
+  // Check if residuals are non-stationary (using Durbin-Watson as proxy)
+  const residualNonStationary = results.durbinWatson < 0.5 || results.durbinWatson > 3.5;
+  
+  const isSpurious = highR2 && (yStationary === false || residualNonStationary);
+  
+  return {
+    isSpurious: isSpurious,
+    highR2: highR2,
+    residualNonStationary: residualNonStationary,
+    yStationary: yStationary,
+    recommendation: isSpurious ? 
+      'Consider differencing the variables or testing for cointegration' :
+      'No strong evidence of spurious regression'
+  };
+};
+
+// ===== Main Component =====
 const TimeSeriesRegression = () => {
   // State
   const [dataPoints, setDataPoints] = useState([
@@ -80,6 +324,10 @@ const TimeSeriesRegression = () => {
   const [forecastHorizon, setForecastHorizon] = useState(2);
   const [fileUploadError, setFileUploadError] = useState(null);
   const [endogeneityStatus, setEndogeneityStatus] = useState(null);
+  const [adfResult, setAdfResult] = useState(null);
+  const [cointegrationResult, setCointegrationResult] = useState(null);
+  const [showAdvancedDiagnostics, setShowAdvancedDiagnostics] = useState(true);
+  const [showHACDetails, setShowHACDetails] = useState(false);
   const fileInputRef = useRef(null);
 
   // ===== Time Series Analysis =====
@@ -198,6 +446,12 @@ const TimeSeriesRegression = () => {
       arIntercept = meanY_lag - arSlope * meanY_lag_prev;
     }
 
+    // HAC Standard Errors
+    const hacResult = calculateHACStandardErrors(dataPoints, { residuals, seSlope });
+
+    // Spurious Regression Check
+    const spuriousCheck = checkSpuriousRegression(dataPoints, { rSquared, durbinWatson, residuals }, adfResult);
+
     return {
       isValid: true,
       slope,
@@ -229,9 +483,17 @@ const TimeSeriesRegression = () => {
       slopeCI: {
         lower: slope - tCrit * seSlope,
         upper: slope + tCrit * seSlope
-      }
+      },
+      // HAC results
+      hacSe: hacResult.hacSe,
+      hacRatio: hacResult.ratio,
+      hacMaxLag: hacResult.maxLag,
+      hacIsDifferent: hacResult.isSignificantlyDifferent,
+      // Spurious regression
+      isSpurious: spuriousCheck.isSpurious,
+      spuriousRecommendation: spuriousCheck.recommendation
     };
-  }, [dataPoints, lagOrder, forecastHorizon]);
+  }, [dataPoints, lagOrder, forecastHorizon, adfResult]);
 
   // ===== Data Management =====
   const addDataPoint = () => {
@@ -274,7 +536,6 @@ const TimeSeriesRegression = () => {
           return;
         }
 
-        // Set labels from headers
         if (headers.length >= 3) {
           setTimeLabel(headers[0] || 'Time');
           setYLabel(headers[1] || 'Y');
@@ -294,6 +555,8 @@ const TimeSeriesRegression = () => {
 
         setDataPoints(newData);
         setFileUploadError(null);
+        setAdfResult(null);
+        setCointegrationResult(null);
       } catch (err) {
         setFileUploadError(`Error parsing file: ${err.message}`);
       }
@@ -334,12 +597,44 @@ const TimeSeriesRegression = () => {
     setTimeLabel('Year');
     setYLabel('Consumption');
     setXLabel('GDP');
+    setAdfResult(null);
+    setCointegrationResult(null);
   };
 
   const clearData = () => {
     if (dataPoints.length > 0) {
       setDataPoints([{ t: 2000, y: 0, x: 0 }]);
+      setAdfResult(null);
+      setCointegrationResult(null);
     }
+  };
+
+  // ===== Run ADF Test =====
+  const runADFTest = () => {
+    if (dataPoints.length < 6) {
+      setAdfResult({ 
+        isValid: false, 
+        message: 'Need at least 6 observations for reliable ADF test',
+        isStationary: null 
+      });
+      return;
+    }
+    const result = calculateADFTest(dataPoints, 'constant');
+    setAdfResult(result);
+  };
+
+  // ===== Run Cointegration Test =====
+  const runCointegrationTest = () => {
+    if (dataPoints.length < 6 || !results.isValid) {
+      setCointegrationResult({ 
+        isValid: false, 
+        message: 'Need at least 6 observations and valid regression results',
+        isCointegrated: null 
+      });
+      return;
+    }
+    const result = calculateCointegrationTest(dataPoints, results);
+    setCointegrationResult(result);
   };
 
   const combinedChartData = [...dataPoints, ...(results.forecasts || [])];
@@ -397,7 +692,7 @@ const TimeSeriesRegression = () => {
                   </div>
                 </div>
 
-                {/* Time Series Data with Upload/Export */}
+                {/* Time Series Data */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <Label className="text-xs font-medium">Time Series Data (t, y, x)</Label>
@@ -523,7 +818,196 @@ const TimeSeriesRegression = () => {
                 </div>
               </div>
 
-              {/* ===== Econometrics Diagnosis (Time Series Specific) ===== */}
+              {/* ===== Advanced Time Series Diagnostics (Now Visible) ===== */}
+              <div className="space-y-3 border-t pt-3">
+                <div 
+                  className="flex items-center justify-between cursor-pointer"
+                  onClick={() => setShowAdvancedDiagnostics(!showAdvancedDiagnostics)}
+                >
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-amber-500" />
+                    <Label className="text-sm font-medium cursor-pointer">Advanced TS Diagnostics</Label>
+                    <Badge variant="outline" className="text-[8px]">Unit Root & Cointegration</Badge>
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                    {showAdvancedDiagnostics ? 
+                      <ChevronDown className="h-4 w-4" /> : 
+                      <ChevronRight className="h-4 w-4" />
+                    }
+                  </Button>
+                </div>
+                
+                {showAdvancedDiagnostics && (
+                  <div className="space-y-3 pl-1">
+                    {/* ADF Unit Root Test */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Unit Root Test:</span>
+                        <Button 
+                          onClick={runADFTest} 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-7 text-xs gap-1 px-3"
+                          disabled={dataPoints.length < 6}
+                        >
+                          <Zap className="h-3 w-3"/> Run ADF Test
+                        </Button>
+                        {dataPoints.length < 6 && (
+                          <span className="text-[10px] text-gray-400">(Need ≥6 obs)</span>
+                        )}
+                      </div>
+                      
+                      {/* ADF Results */}
+                      {adfResult && (
+                        <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 rounded text-xs space-y-1.5 border border-gray-200 dark:border-gray-700">
+                          {adfResult.isValid === false ? (
+                            <p className="text-yellow-600">{adfResult.message}</p>
+                          ) : (
+                            <>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">ADF Test Statistic:</span>
+                                <span className={`font-mono font-bold ${
+                                  adfResult.isStationary ? 'text-green-600' : 'text-yellow-600'
+                                }`}>
+                                  {formatNumber(adfResult.testStatistic, 3)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">5% Critical Value:</span>
+                                <span className="font-mono">{adfResult.criticalValues['5%']}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">p-value:</span>
+                                <span className="font-mono">{adfResult.pValue || 'N/A'}</span>
+                              </div>
+                              <div className="flex items-center gap-2 pt-1 border-t border-gray-200 dark:border-gray-700">
+                                <Badge className={`text-[10px] ${
+                                  adfResult.isStationary ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {adfResult.isStationary ? '✅ Stationary (I(0))' : '⚠️ Non-Stationary (I(1))'}
+                                </Badge>
+                                {!adfResult.isStationary && (
+                                  <span className="text-[10px] text-yellow-600">💡 Consider differencing</span>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Cointegration Test */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Cointegration:</span>
+                        <Button 
+                          onClick={runCointegrationTest} 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-7 text-xs gap-1 px-3"
+                          disabled={dataPoints.length < 6 || !results.isValid}
+                        >
+                          <Shield className="h-3 w-3"/> Engle-Granger Test
+                        </Button>
+                        {dataPoints.length < 6 && (
+                          <span className="text-[10px] text-gray-400">(Need ≥6 obs)</span>
+                        )}
+                      </div>
+                      
+                      {/* Cointegration Results */}
+                      {cointegrationResult && (
+                        <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 rounded text-xs space-y-1.5 border border-gray-200 dark:border-gray-700">
+                          {cointegrationResult.isValid === false ? (
+                            <p className="text-yellow-600">{cointegrationResult.message}</p>
+                          ) : (
+                            <>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Engle-Granger Test Statistic:</span>
+                                <span className={`font-mono font-bold ${
+                                  cointegrationResult.isCointegrated ? 'text-green-600' : 'text-yellow-600'
+                                }`}>
+                                  {formatNumber(cointegrationResult.testStatistic, 3)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">5% Critical Value:</span>
+                                <span className="font-mono">{cointegrationResult.criticalValues['5%']}</span>
+                              </div>
+                              <div className="flex items-center gap-2 pt-1 border-t border-gray-200 dark:border-gray-700">
+                                <Badge className={`text-[10px] ${
+                                  cointegrationResult.isCointegrated ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {cointegrationResult.isCointegrated ? '✅ Cointegrated' : '⚠️ Not Cointegrated'}
+                                </Badge>
+                                {!cointegrationResult.isCointegrated && (
+                                  <span className="text-[10px] text-yellow-600">💡 Use differenced variables</span>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* HAC Standard Errors Info */}
+                    {results.isValid && results.hacSe && (
+                      <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 rounded text-xs space-y-1.5 border border-gray-200 dark:border-gray-700">
+                        <div 
+                          className="flex items-center justify-between cursor-pointer"
+                          onClick={() => setShowHACDetails(!showHACDetails)}
+                        >
+                          <p className="font-medium text-gray-700 dark:text-gray-300">HAC Standard Errors (Newey-West)</p>
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                            {showHACDetails ? 
+                              <ChevronDown className="h-3 w-3" /> : 
+                              <ChevronRight className="h-3 w-3" />
+                            }
+                          </Button>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">HAC SE (Slope):</span>
+                          <span className="font-mono">{formatNumber(results.hacSe, 4)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">OLS SE (Slope):</span>
+                          <span className="font-mono">{formatNumber(results.seSlope, 4)}</span>
+                        </div>
+                        {showHACDetails && (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Ratio (HAC/OLS):</span>
+                              <span className={`font-mono ${
+                                results.hacRatio > 1.2 || results.hacRatio < 0.8 ? 'text-yellow-600' : ''
+                              }`}>
+                                {formatNumber(results.hacRatio, 3)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Max Lag:</span>
+                              <span className="font-mono">{results.hacMaxLag}</span>
+                            </div>
+                          </>
+                        )}
+                        {results.hacIsDifferent && (
+                          <p className="text-yellow-600 text-[10px]">⚠️ HAC and OLS SEs differ significantly - use HAC for inference</p>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Spurious Regression Warning */}
+                    {results.isValid && results.isSpurious && (
+                      <Alert variant="default" className="border-red-300 bg-red-50 dark:bg-red-950/20 py-1.5">
+                        <AlertTriangle className="h-3 w-3 text-red-600" />
+                        <AlertDescription className="text-xs">
+                          <span className="font-medium text-red-600">⚠️ Spurious Regression Risk:</span> {results.spuriousRecommendation}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ===== Econometrics Diagnosis ===== */}
               <div className="mt-2">
                 <EconometricsDiagnosis 
                   dataPoints={dataPoints.map(p => ({ x: p.t, y: p.y }))}
@@ -722,7 +1206,7 @@ const TimeSeriesRegression = () => {
                     </Alert>
                   )}
 
-                  {/* ===== Endogeneity Diagnosis (TS-specific) ===== */}
+                  {/* ===== Endogeneity Diagnosis ===== */}
                   <div className="mt-4 pt-4 border-t">
                     <EndogeneityDiagnosis 
                       dataPoints={dataPoints.map(p => ({ x: p.t, y: p.y }))}

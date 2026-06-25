@@ -96,7 +96,7 @@ export default function Sidebar({ onClose }) {
       <div className="flex h-14 sm:h-16 items-center justify-between px-4 border-b">
         <div className="flex items-center gap-2">
           <Calculator className="h-6 w-6 text-blue-600" />
-          <span className="font-semibold text-sm">Finance Suite</span>
+          <span className="font-semibold text-sm">FinFlow Analytics</span>
         </div>
         <Button
           variant="ghost"
